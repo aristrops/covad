@@ -12,16 +12,17 @@ class MvTecConceptDataset(Dataset):
         dataframe,
         split: str,
         apply_transformation: bool = True,
-        img_size=(299, 299),
+        img_size=(224, 224),
         use_attr: bool = True,
         n_class_attr: int = 2
     ) -> None:
         super(MvTecConceptDataset)
 
-        exclude_cols = ["image_path", "label_index", "mask_path", "split"]
+        self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
+
+        exclude_cols = ["image_path", "label_index", "mask_path", "split", "path"]
         self.attr_cols = [col for col in self.df.columns if col not in exclude_cols]
 
-        self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
         self.split = split
         self.apply_transformation = apply_transformation
         self.use_attr = use_attr
@@ -49,7 +50,7 @@ class MvTecConceptDataset(Dataset):
         label = row["label_index"]
 
         if self.use_attr:
-            attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float(32)))
+            attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float32))
             return image, label, attr_label
         else:
             return image, label
