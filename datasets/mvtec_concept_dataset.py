@@ -11,6 +11,7 @@ class MvTecConceptDataset(Dataset):
         self,
         dataframe,
         split: str,
+        load_image: bool = True,
         apply_transformation: bool = True,
         img_size=(224, 224),
         use_attr: bool = True,
@@ -24,6 +25,7 @@ class MvTecConceptDataset(Dataset):
         self.attr_cols = [col for col in self.df.columns if col not in exclude_cols]
 
         self.split = split
+        self.load_image = load_image
         self.apply_transformation = apply_transformation
         self.use_attr = use_attr
         self.n_class_attr = n_class_attr
@@ -51,6 +53,9 @@ class MvTecConceptDataset(Dataset):
 
         if self.use_attr:
             attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float32))
-            return image, label, attr_label
+            if self.load_image:
+                return image, label, attr_label
+            else:
+                return attr_label, label
         else:
             return image, label

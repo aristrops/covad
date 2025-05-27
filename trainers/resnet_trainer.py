@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import copy
 
 class ResNetTrainer:
@@ -56,18 +57,22 @@ class ResNetTrainer:
         for images, labels, concepts in self.train_dataloader:
             images, labels, concepts = images.to(self.device), labels.to(self.device), concepts.to(self.device)
             self.optimizer.zero_grad()
-            main_pred, attr_preds = self.model(images)
+            predictions = self.model(images)
 
-            loss = self.joint_loss(main_pred, attr_preds, labels, concepts)
-            loss.backward()
-            self.optimizer.step()
+            losses = []
+            output_start = 0 #where attribute outputs start
+            for i in range(len(self.attr_criterion)):
+                ground_truths = concepts[:, i]
+                predicted_attributes = predictions[i + output_start]
+                losses.append(self.lambda_ * self.attr_criterion[i](predicted_attributes.squeeze().type(torch.FloatTensor), ground_truths))
+            
+            #compute attribute accuracy
+            sigmoid_outputs = nn.Sigmoid()(torch.cat(predictions, dim = 1))
 
-            main_acc, attr_acc = self.compute_metrics(main_pred, attr_preds, labels, concepts)
-            total_loss += loss.item()
-            total_main_acc += main_acc
-            total_attr_acc += attr_acc
+            #compute binary accuracy
 
-        return (total_loss / n_batches, total_main_acc / n_batches, total_attr_acc / n_batches)
+
+        #return (total_loss / n_batches, total_main_acc / n_batches, total_attr_acc / n_batches)
 
 
     def val_epoch(self):

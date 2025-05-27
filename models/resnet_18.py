@@ -2,6 +2,53 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
+
+class End2EndModel(nn.Module):
+    def __init__(self, model_1, model_2, use_relu = False, use_sigmoid = False):
+        super(End2EndModel, self).__init__()
+        self.first_model = model_1
+        self.second_model = model_2
+        self.use_relu = use_relu
+        self.use_sigmoid = use_sigmoid
+
+    def second_forward_stage(self, output_stage_1):
+        if self.use_relu:
+            attr_outputs = [nn.ReLU()(o) for o in output_stage_1]
+        elif self.use_sigmoid:
+            attr_outputs = [nn.Sigmoid()(o) for o in output_stage_1]
+        else:
+            attr_outputs = output_stage_1
+        
+        input_stage_2 = attr_outputs
+        input_stage_2 = torch.cat(input_stage_2, dim = 1)
+        all_outputs = [self.second_model(input_stage_2)] #main task prediction
+        all_outputs.extend(output_stage_1) #concept predictions
+        return all_outputs
+    
+    def forward(self, x):
+        outputs = self.first_model(x)
+        return self.second_forward_stage(outputs)
+    
+
+class MLP(nn.Module):
+    def __init__(self, input_dim, expand_dim):
+        super(MLP, self).__init__()
+        self.expand_dim = expand_dim
+
+        if self.expand_dim:
+            self.linear = nn.Linear(input_dim, expand_dim)
+            self.activation = nn.ReLU()
+            self.linear_2 = nn.Linear(expand_dim, 1)
+        self.linear = nn.Linear(input_dim, 1)
+    
+    def forward(self, x):
+        x = self.linear(x)
+        if self.expand_dim:
+            x = self.activation(x)
+            x = self.linear_2(x)
+        return x
+
+
 class ResNet18model(nn.Module):
     def __init__(self,
                  num_attr: int,
@@ -18,52 +65,55 @@ class ResNet18model(nn.Module):
         self.num_attr = num_attr
         self.connect_CY = connect_CY
 
-        #FC heads for attribute prediction
-        self.attr_heads = nn.ModuleList()
-        for _ in range(num_attr):
-            output_dim = 1
-            self.attr_heads.append(self._make_fc(feature_dim, output_dim, expand_dim))
-
-        self.main_fc = self._make_fc(feature_dim, 1, expand_dim)
+        self.fc_layers = nn.ModuleList() #list of fc layers for each prediction; main task is always the first fc layer
 
         #optional: connect concepts to label (joint model)
         if connect_CY:
-            self.cy_fc = self._make_fc(num_attr, 1, expand_dim)
+            self.cy_fc = FC(num_attr, 1, expand_dim)
         else:
             self.cy_fc = None
-        
-    
-    #create FC layers
-    def _make_fc(self, input_dim, output_dim, expand_dim):
-        if expand_dim > 0: #create MLP rather than standard FC layer
-            return nn.Sequential(
-                nn.Linear(input_dim, expand_dim),
-                nn.ReLU(),
-                nn.Linear(expand_dim, output_dim))
+
+        #self.fc_layers.append(FC(feature_dim, 1, expand_dim))
+
+        if self.num_attr > 0:
+            for _ in range(self.num_attr):
+                self.fc_layers.append(FC(feature_dim, 1, expand_dim))
         else:
-            return nn.Linear(input_dim, output_dim)
+            self.fc_layers.append(FC(feature_dim, 1, expand_dim))
     
     def forward(self, x):
         x = self.feature_extractor(x)
         x = torch.flatten(x, 1)
 
-        #predict concepts
-        attr_preds = []
-        for head in self.attr_heads:
-            attr_preds.append(head(x))
-        if self.num_attr > 0:
-            attr_preds_concat = torch.cat(attr_preds, dim = 1)
-        else:
-            attr_preds_concat = None
-        
-        #predict main label
-        main_pred = self.main_fc(x)
+        predictions = []
 
-        #optional: connect concepts to main task
-        if self.connect_CY and attr_preds_concat is not None:
-            main_pred += self.cy_fc(attr_preds_concat)
+        for fc in self.fc_layers:
+            predictions.append(fc(x))
+        # if self.num_attr > 0 and self.cy_fc is not None:
+        #     attr_preds = torch.cat(predictions[1:], dim = 1)
+        #     predictions[0] += self.cy_fc(attr_preds) #add attribute prediction to the main task
         
-        if self.num_attr > 0:
-            return main_pred, attr_preds
+        return predictions
+  
+
+#fc layers for prediction
+class FC(nn.Module):
+    def __init__(self, input_dim, output_dim, expand_dim):
+        super(FC, self).__init__()
+
+        self.expand_dim = expand_dim
+
+        if self.expand_dim > 0: #create MLP rather than standard FC layer
+            self.relu = nn.ReLU()
+            self.fc_new = nn.Linear(input_dim, expand_dim)
+            self.fc = nn.Linear(expand_dim, output_dim)
+
         else:
-            return main_pred
+            self.fc = nn.Linear(input_dim, output_dim)
+    
+    def forward(self, x):
+        if self.expand_dim > 0:
+            x = self.fc_new(x)
+            x = self.relu(x)
+        x = self.fc(x)
+        return x
