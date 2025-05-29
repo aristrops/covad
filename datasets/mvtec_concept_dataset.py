@@ -21,7 +21,7 @@ class MvTecConceptDataset(Dataset):
 
         self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
 
-        exclude_cols = ["image_path", "label_index", "mask_path", "split", "path"]
+        exclude_cols = ["image_path", "label_index", "mask_path", "split", "anomaly_type"]
         self.attr_cols = [col for col in self.df.columns if col not in exclude_cols]
 
         self.split = split
@@ -59,3 +59,13 @@ class MvTecConceptDataset(Dataset):
                 return attr_label, label
         else:
             return image, label
+    
+    def find_class_imbalance(self):
+        label_counts = self.df["label_index"].value_counts().to_dict()
+        num_total = len(self.df)
+        num_positives = label_counts.get(1, 0)
+        num_negatives = label_counts.get(0, 0)
+
+        imbalance_ratio = num_total / num_positives - 1
+        
+        return imbalance_ratio, label_counts

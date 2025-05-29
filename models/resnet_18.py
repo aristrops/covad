@@ -53,7 +53,7 @@ class ResNet18model(nn.Module):
     def __init__(self,
                  num_attr: int,
                  expand_dim: int = 0,
-                 connect_CY: bool = True):
+                 bottleneck: bool = True):
         
         super(ResNet18model, self).__init__()
 
@@ -63,19 +63,13 @@ class ResNet18model(nn.Module):
         feature_dim = base_model.fc.in_features
 
         self.num_attr = num_attr
-        self.connect_CY = connect_CY
+        self.bottleneck = bottleneck
 
         self.fc_layers = nn.ModuleList() #list of fc layers for each prediction; main task is always the first fc layer
 
-        #optional: connect concepts to label (joint model)
-        if connect_CY:
-            self.cy_fc = FC(num_attr, 1, expand_dim)
-        else:
-            self.cy_fc = None
-
-        #self.fc_layers.append(FC(feature_dim, 1, expand_dim))
-
-        if self.num_attr > 0:
+        if self.num_attr is not None:
+            if not self.bottleneck:
+                self.fc_layers.append(FC(feature_dim, 1, expand_dim))
             for _ in range(self.num_attr):
                 self.fc_layers.append(FC(feature_dim, 1, expand_dim))
         else:
