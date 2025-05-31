@@ -3,7 +3,7 @@ import torch.nn as nn
 import torchvision.models as models
 
 
-class End2EndModel(nn.Module):
+class End2EndModel(nn.Module): #joint bottleneck
     def __init__(self, model_1, model_2, use_relu = False, use_sigmoid = False):
         super(End2EndModel, self).__init__()
         self.first_model = model_1
@@ -53,12 +53,17 @@ class ResNet18model(nn.Module):
     def __init__(self,
                  num_attr: int,
                  expand_dim: int = 0,
-                 bottleneck: bool = True):
+                 bottleneck: bool = True,
+                 freeze_parameters: bool = True):
         
         super(ResNet18model, self).__init__()
 
         #load pretrained resnet
         base_model = models.resnet18(pretrained = True)
+        if freeze_parameters:
+            for param in base_model.parameters():
+                param.requires_grad = False
+
         self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1]) #remove last FC layer
         feature_dim = base_model.fc.in_features
 

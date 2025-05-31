@@ -7,7 +7,7 @@ from metrics import AverageMeter, binary_accuracy
 from sklearn.metrics import f1_score
 
 class ResNetTrainer:
-    def __init__(self, model, num_attr, train_dataloader, val_dataloader, weight, optimizer, device, lambda_, num_epochs, patience = 5, bottleneck = False, concepts = True):
+    def __init__(self, model, num_attr, train_dataloader, val_dataloader, optimizer, device, lambda_, num_epochs, patience = 5, bottleneck = False, concepts = True, no_img = False, weight = None):
         self.model = model.to(device)
         self.num_attr = num_attr
         self.train_dataloader = train_dataloader
@@ -20,21 +20,58 @@ class ResNetTrainer:
         self.patience = patience
         self.bottleneck = bottleneck
         self.concepts = concepts
+        self.no_img = no_img
 
-        if self.weight is not None:
-            self.main_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.weight)
+        if weight is not None:
+            self.main_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=weight)
         else:
             self.main_criterion = torch.nn.BCEWithLogitsLoss()
         if concepts:
             self.attr_criterion = []
             for attr in range(self.num_attr):
                 self.attr_criterion.append(torch.nn.BCEWithLogitsLoss())
+        else:
+            self.attr_criterion = None
 
         self.best_val_epoch = -1
         self.best_val_loss = float("inf")
         self.monitored_epochs = 0
         self.best_model_wts = copy.deepcopy(self.model.state_dict())
     
+    def run_epoch_no_img(self, dataloader, loss_meter, accuracy_meter, is_training): #prediction of A -> Y (independent and sequential)
+
+        all_main_preds, all_main_targets = [], []
+
+        if is_training:
+            self.model.train()
+        else:
+            self.model.eval()
+        for labels, concepts in dataloader:
+            labels, concepts = labels.to(self.device), concepts.to(self.device)
+
+            predictions = self.model(concepts)
+            sigmoid_outputs = nn.Sigmoid()(predictions.squeeze(1))
+            loss = self.main_criterion(predictions, labels)
+
+            accuracy = binary_accuracy(sigmoid_outputs, labels)
+            accuracy_meter.update(accuracy.item(), concepts.size(0))
+            
+            main_predictions = (sigmoid_outputs >= 0.5).int()
+            all_main_preds.append(main_predictions)
+            all_main_targets.append(labels.detach().cpu().int())
+
+            if is_training:
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+        
+        all_main_preds = torch.cat(all_main_preds).numpy()
+        all_main_targets = torch.cat(all_main_targets).numpy()
+
+        f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
+        
+        return loss_meter, accuracy_meter, f1_main
+
 
     def run_epoch(self, dataloader, loss_meter, accuracy_meter_main, accuracy_meter_attr, is_training):
 
@@ -77,15 +114,19 @@ class ResNetTrainer:
             all_main_preds.append(main_predictions)
             all_main_targets.append(labels.detach().cpu().int())
 
-            accuracy_main = binary_accuracy(sigmoid_outputs, labels)
-            accuracy_meter_main.update(accuracy_main.item(), images.size(0))
+            if not self.bottleneck:
+                accuracy_main = binary_accuracy(sigmoid_outputs, labels)
+                accuracy_meter_main.update(accuracy_main.item(), images.size(0))
             
             #if attributes exist, compute attribute accuracy
             if len(predictions) > 1:
-                sigmoid_outputs = nn.Sigmoid()(torch.cat(predictions[1:], dim = 1))
-                attr_predictions = (sigmoid_outputs >= 0.5).int()
-                all_attr_preds.append(attr_predictions)
-                all_attr_targets.append(concepts.detach().cpu().int())
+                if not self.bottleneck:
+                    sigmoid_outputs = nn.Sigmoid()(torch.cat(predictions[1:], dim = 1))
+                else:
+                    sigmoid_outputs = nn.Sigmoid()(torch.cat(predictions, dim = 1))
+                    attr_predictions = (sigmoid_outputs >= 0.5).int()
+                    all_attr_preds.append(attr_predictions)
+                    all_attr_targets.append(concepts.detach().cpu().int())
 
                 accuracy = binary_accuracy(sigmoid_outputs, concepts)
                 accuracy_meter_attr.update(accuracy.data.cpu().numpy(), images.size(0))
@@ -131,23 +172,31 @@ class ResNetTrainer:
         for epoch in range(self.num_epochs):
             train_loss = AverageMeter()
             train_acc_main = AverageMeter()
-            train_acc_attr = AverageMeter()
-
-            train_loss, train_acc_main, train_acc_attr, train_f1_main, train_f1_attr = self.run_epoch(self.train_dataloader, train_loss, train_acc_main, train_acc_attr, is_training=True)
+            if self.concepts:
+                train_acc_attr = AverageMeter()
+            
+            if self.no_img:
+                train_loss, train_acc_main, train_f1_main = self.run_epoch_no_img(self.train_dataloader, train_loss, train_acc_main, is_training=True)
+            else:
+                train_loss, train_acc_main, train_acc_attr, train_f1_main, train_f1_attr = self.run_epoch(self.train_dataloader, train_loss, train_acc_main, train_acc_attr, is_training=True)
 
             #evaluate on validation set
             val_loss = AverageMeter()
             val_acc_main = AverageMeter()
-            val_acc_attr = AverageMeter()
+            if self.concepts:
+                val_acc_attr = AverageMeter()
 
 
             with torch.no_grad():
-                val_loss, val_acc_main, val_acc_attr, val_f1_main, val_f1_attr = self.run_epoch(self.val_dataloader, val_loss, val_acc_main, val_acc_attr, is_training=False)
+                if self.no_img:
+                    val_loss, val_acc_main = self.run_epoch_no_img(self.val_dataloader, val_loss, val_acc_main, is_training=False)
+                else:
+                    val_loss, val_acc_main, val_acc_attr, val_f1_main, val_f1_attr = self.run_epoch(self.val_dataloader, val_loss, val_acc_main, val_acc_attr, is_training=False)
             
             train_loss_avg = train_loss.avg
             val_loss_avg = val_loss.avg
 
-            if self.concepts:
+            if self.concepts and not self.no_img:
                 print(f"Epoch [{epoch}/{self.num_epochs}]: Train Loss = {train_loss_avg:.4f}, Train Main Accuracy = {train_acc_main.avg:.4f}, Train Attribute Accuracy = {train_acc_attr.avg.item():.4f}, Train Main F1 = {train_f1_main:.4f}, Train Attribute F1 = {train_f1_attr:.4f}"
                   f"| Val Loss = {val_loss_avg:.4f}, Val Main Accuracy = {val_acc_main.avg:.4f}, Val Attribute Accuracy = {val_acc_attr.avg.item():.4f}, Val Main F1 = {val_f1_main:.4f}, Val Attribute F1 = {val_f1_attr:.4f}")
             else:

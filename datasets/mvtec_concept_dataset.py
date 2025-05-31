@@ -35,7 +35,17 @@ class MvTecConceptDataset(Dataset):
                                         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                              std=[0.229, 0.224, 0.225])]) if apply_transformation else None
         
+        transform_anomaly = transforms.Compose([transforms.Resize(img_size),
+                                        transforms.ToTensor(),
+                                        transforms.RandomHorizontalFlip(p=0.5),
+                                        transforms.RandomVerticalFlip(p=0.5),
+                                        transforms.RandomRotation(degrees = 25),
+                                        transforms.ColorJitter(brightness=0.2, contrast=0.2),
+                                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                             std=[0.229, 0.224, 0.225])])
+        
         self.transform = transform
+        self.transform_anomaly = transform_anomaly
 
     def __len__(self):
         return len(self.df)
@@ -45,11 +55,14 @@ class MvTecConceptDataset(Dataset):
         image_path = row["image_path"]
 
         image = Image.open(image_path).convert("RGB")
+        label = row["label_index"]
 
         if self.transform:
-            image = self.transform(image)
+            if self.split == "train" and label == 1:
+                image = self.transform_anomaly(image)
+            else:
+                image = self.transform(image)
         
-        label = row["label_index"]
 
         if self.use_attr:
             attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float32))
@@ -64,7 +77,6 @@ class MvTecConceptDataset(Dataset):
         label_counts = self.df["label_index"].value_counts().to_dict()
         num_total = len(self.df)
         num_positives = label_counts.get(1, 0)
-        num_negatives = label_counts.get(0, 0)
 
         imbalance_ratio = num_total / num_positives - 1
         
