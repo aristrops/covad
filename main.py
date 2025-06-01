@@ -17,8 +17,8 @@ def train_model(dataframe_path: str, model_type: str, device: torch.device, lamb
     if model_type == "independent":
         train_dataset_no_img = MvTecConceptDataset(dataframe, split = "train", load_image=False)
     print(f"Number of training images: {len(train_dataset)}")
-    imbalance_ratio, label_counts = train_dataset.find_class_imbalance()
-    weight_tensor = torch.tensor([imbalance_ratio], dtype=torch.float32).to(device)
+    imbalance_ratio, label_counts = train_dataset.find_class_imbalance("main")
+    imabalance_ratio_attr, label_counts_attr = train_dataset.find_class_imbalance("attributes")
     print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
     print("Label Counts in training set:", label_counts)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
@@ -29,9 +29,6 @@ def train_model(dataframe_path: str, model_type: str, device: torch.device, lamb
     if model_type == "independent":
         val_dataset_no_img = MvTecConceptDataset(dataframe, split = "val", load_image=False)
     print(f"Number of validation images: {len(val_dataset)}")
-    imbalance_ratio, label_counts = val_dataset.find_class_imbalance()
-    print("Imbalance Ratio (negatives per positive) in validation set:", imbalance_ratio)
-    print("Label Counts in validation set:", label_counts)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle = False)
     if model_type == "independent":
         val_dataloader_no_img = torch.utils.data.DataLoader(val_dataset_no_img, batch_size = batch_size, shuffle = True)
@@ -62,12 +59,12 @@ def train_model(dataframe_path: str, model_type: str, device: torch.device, lamb
             main_optimizer = torch.optim.Adam(main_task_model.parameters(), lr = lr)
 
     if model_type == "joint":
-        trainer = ResNetTrainer(model, num_attr, train_dataloader, val_dataloader, weight_tensor, optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=use_concepts) 
+        trainer = ResNetTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=use_concepts, weight_main=imbalance_ratio, weight_attr=imabalance_ratio_attr) 
         trainer.train() 
     elif model_type == "independent":
-        trainer_concepts = ResNetTrainer(concept_model, num_attr, train_dataloader, val_dataloader, concept_optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=True, bottleneck=True)
-        trainer_concepts.train()
-        trainer_main =  ResNetTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, main_optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=False, no_img=True)
+        # trainer_concepts = ResNetTrainer(concept_model, num_attr, train_dataloader, val_dataloader, concept_optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=True, bottleneck=True, weight_attr=imabalance_ratio_attr)
+        # trainer_concepts.train()
+        trainer_main =  ResNetTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, main_optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=False, no_img=True, weight_main=imbalance_ratio)
         trainer_main.train()
 
     del model

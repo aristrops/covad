@@ -35,7 +35,7 @@ class MvTecConceptDataset(Dataset):
                                         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                              std=[0.229, 0.224, 0.225])]) if apply_transformation else None
         
-        transform_anomaly = transforms.Compose([transforms.Resize(img_size),
+        transform_augment = transforms.Compose([transforms.Resize(img_size),
                                         transforms.ToTensor(),
                                         transforms.RandomHorizontalFlip(p=0.5),
                                         transforms.RandomVerticalFlip(p=0.5),
@@ -45,7 +45,7 @@ class MvTecConceptDataset(Dataset):
                                                              std=[0.229, 0.224, 0.225])])
         
         self.transform = transform
-        self.transform_anomaly = transform_anomaly
+        self.transform_augment = transform_augment
 
     def __len__(self):
         return len(self.df)
@@ -57,12 +57,11 @@ class MvTecConceptDataset(Dataset):
         image = Image.open(image_path).convert("RGB")
         label = row["label_index"]
 
-        if self.transform:
-            if self.split == "train" and label == 1:
-                image = self.transform_anomaly(image)
+        if self.apply_transformation:
+            if self.split == "train":
+                image = self.transform_augment(image)
             else:
                 image = self.transform(image)
-        
 
         if self.use_attr:
             attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float32))
@@ -73,11 +72,20 @@ class MvTecConceptDataset(Dataset):
         else:
             return image, label
     
-    def find_class_imbalance(self):
-        label_counts = self.df["label_index"].value_counts().to_dict()
+    def find_class_imbalance(self, type = "main"):
         num_total = len(self.df)
-        num_positives = label_counts.get(1, 0)
+        if type == "main":
+            label_counts = self.df["label_index"].value_counts().to_dict()
+            num_positives = label_counts.get(1, 0)
 
-        imbalance_ratio = num_total / num_positives - 1
+            imbalance_ratio = num_total / num_positives - 1
+        elif type == "attributes":
+            imbalance_ratio = []
+            label_counts = []
+            for attr in self.attr_cols:
+                num_positives = self.df[attr].sum()
+                label_counts.append(int(num_positives))
+
+                imbalance_ratio.append(num_total / num_positives - 1)
         
         return imbalance_ratio, label_counts

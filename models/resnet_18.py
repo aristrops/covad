@@ -61,8 +61,11 @@ class ResNet18model(nn.Module):
         #load pretrained resnet
         base_model = models.resnet18(pretrained = True)
         if freeze_parameters:
-            for param in base_model.parameters():
-                param.requires_grad = False
+            for name, param in base_model.named_parameters():
+                if "layer4" in name:
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
 
         self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1]) #remove last FC layer
         feature_dim = base_model.fc.in_features
