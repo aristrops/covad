@@ -52,20 +52,24 @@ class MLP(nn.Module):
 class ResNet18model(nn.Module):
     def __init__(self,
                  num_attr: int,
+                 freeze_parameters: bool,
                  expand_dim: int = 0,
-                 bottleneck: bool = True,
-                 freeze_parameters: bool = True):
+                 bottleneck: bool = True):
         
         super(ResNet18model, self).__init__()
 
         #load pretrained resnet
         base_model = models.resnet18(pretrained = True)
-        if freeze_parameters:
+
+        #freeze layers by default
+        for name, param in base_model.named_parameters():
+            param.requires_grad = False
+        if not freeze_parameters: 
+            #fine-tune last layer
             for name, param in base_model.named_parameters():
                 if "layer4" in name:
                     param.requires_grad = True
-                else:
-                    param.requires_grad = False
+
 
         self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1]) #remove last FC layer
         feature_dim = base_model.fc.in_features
@@ -91,9 +95,6 @@ class ResNet18model(nn.Module):
 
         for fc in self.fc_layers:
             predictions.append(fc(x))
-        # if self.num_attr > 0 and self.cy_fc is not None:
-        #     attr_preds = torch.cat(predictions[1:], dim = 1)
-        #     predictions[0] += self.cy_fc(attr_preds) #add attribute prediction to the main task
         
         return predictions
   

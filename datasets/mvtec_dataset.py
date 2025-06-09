@@ -284,3 +284,6 @@ class MVTecDataset(IadDataset):
                 mask = torch.zeros(1, *self.gt_mask_size)
 
             return image, label, mask.int(), path
+        
+
+        

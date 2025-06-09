@@ -2,78 +2,119 @@ import argparse
 import torch
 import pandas as pd
 import gc
+import os
+
+import torch.utils.data.dataloader
 
 from datasets.mvtec_concept_dataset import MvTecConceptDataset
-from models.final_models import joint_model, standard_model, concepts_model, main_model
+from models.full_models import joint_model, standard_model, concepts_model, main_model
 from trainers.resnet_trainer import ResNetTrainer
 
-def train_model(dataframe_path: str, model_type: str, device: torch.device, lambda_: float, batch_size: int = 32, optimizer: str = "adam", lr: float = 1e-3, epochs: int = 100, use_concepts = True, freeze_parameters = True):
+def train_model(dataframe_path: str, 
+                model_type: str, 
+                device: torch.device, 
+                lambda_: float, 
+                batch_size: int = 32, 
+                optimizer: str = "adam", 
+                lr: float = 1e-3, 
+                epochs: int = 100, 
+                use_concepts: bool = True, 
+                freeze_parameters: bool = True, 
+                save_path: str = None, 
+                model_path: str = None):
+    
+    def load_dataset(split, use_attr = True, load_image = True):
+        return MvTecConceptDataset(dataframe, split=split, use_attr=use_attr, load_image=load_image)
 
+    def make_dataloader(dataset, shuffle = True):
+        return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    
+    def init_optimizer(params):
+        if optimizer == "adam":
+            return torch.optim.Adam(params, lr = lr)
+        
     dataframe = pd.read_csv(dataframe_path)
     concepts = [col for col in dataframe.columns if col not in ["image_path", "label_index", "mask_path", "split", "anomaly_type"]]
-    num_attr = len(concepts)
+    num_attr = len(concepts) if use_concepts else None
 
-    train_dataset = MvTecConceptDataset(dataframe, split = "train")
+    state_dict = torch.load(model_path) if model_path else None
+
+    train_dataset = load_dataset("train", use_attr=use_concepts)
+    val_dataset = load_dataset("val", use_attr=use_concepts)
+    train_dataloader = make_dataloader(train_dataset)
+    val_dataloader = make_dataloader(val_dataset, shuffle = False)
+
     if model_type == "independent":
-        train_dataset_no_img = MvTecConceptDataset(dataframe, split = "train", load_image=False)
+        train_dataset_no_img = load_dataset("train", load_image=False)
+        val_dataset_no_img = load_dataset("val", load_image=False)
+        train_dataloader_no_img = make_dataloader(train_dataset_no_img)
+        val_dataloader_no_img = make_dataloader(val_dataset_no_img)
+
     print(f"Number of training images: {len(train_dataset)}")
+    print(f"Number of validation images: {len(val_dataset)}")
+
     imbalance_ratio, label_counts = train_dataset.find_class_imbalance("main")
-    imabalance_ratio_attr, label_counts_attr = train_dataset.find_class_imbalance("attributes")
     print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
     print("Label Counts in training set:", label_counts)
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
-    if model_type == "independent":
-        train_dataloader_no_img = torch.utils.data.DataLoader(train_dataset_no_img, batch_size = batch_size, shuffle = True)
 
-    val_dataset = MvTecConceptDataset(dataframe, split = "val")
-    if model_type == "independent":
-        val_dataset_no_img = MvTecConceptDataset(dataframe, split = "val", load_image=False)
-    print(f"Number of validation images: {len(val_dataset)}")
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle = False)
-    if model_type == "independent":
-        val_dataloader_no_img = torch.utils.data.DataLoader(val_dataset_no_img, batch_size = batch_size, shuffle = True)
+    imbalance_ratio_attr = None
+    if use_concepts:
+        imbalance_ratio_attr, label_counts_attr = train_dataset.find_class_imbalance("attributes")
 
-    #define the model
+    #initialize the model
     if model_type == "joint":
-        model = joint_model(num_attr=num_attr, expand_dim=1, use_relu = True, use_sigmoid=False, freeze_parameters=freeze_parameters)
+        model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
+                            freeze_parameters=freeze_parameters, model_state_dict=state_dict)
         model.to(device)
-        model.train()
-    elif model_type == "independent" or model_type == "sequential":
-        concept_model = concepts_model(num_attr=num_attr, expand_dim=1)
-        concept_model.to(device)
-        concept_model.train()
-        main_task_model = main_model(num_attr=num_attr, expand_dim = 1)
-        main_task_model.to(device)
-        main_task_model.train()
-    elif model_type == "standard":
-        model = standard_model()
-        model.to(device)
-        model.train()
-    
-
-    if optimizer == "adam":
-        if model_type == "standard" or model_type == "joint":
-            optimizer = torch.optim.Adam(model.parameters(), lr = lr)
-        elif model_type == "independent":
-            concept_optimizer = torch.optim.Adam(concept_model.parameters(), lr = lr)
-            main_optimizer = torch.optim.Adam(main_task_model.parameters(), lr = lr)
-
-    if model_type == "joint":
-        trainer = ResNetTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=use_concepts, weight_main=imbalance_ratio, weight_attr=imabalance_ratio_attr) 
+        optimizer =init_optimizer(model.parameters())
+        trainer = ResNetTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, 
+                                device, lambda_ = lambda_, num_epochs=epochs, concepts=use_concepts, 
+                                weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr) 
         trainer.train() 
+    
+    elif model_type == "standard":
+        model = standard_model(freeze_parameters=freeze_parameters, model_state_dict=state_dict)
+        model.to(device)
+        optimizer = init_optimizer(model.parameters())
+        trainer = ResNetTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, 
+                                device, lambda_ = lambda_, num_epochs=epochs, concepts=False, 
+                                main_only=True, weight_main=imbalance_ratio) 
+        trainer.train() 
+
     elif model_type == "independent":
-        # trainer_concepts = ResNetTrainer(concept_model, num_attr, train_dataloader, val_dataloader, concept_optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=True, bottleneck=True, weight_attr=imabalance_ratio_attr)
-        # trainer_concepts.train()
-        trainer_main =  ResNetTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, main_optimizer, device, lambda_ = lambda_, num_epochs=epochs, concepts=False, no_img=True, weight_main=imbalance_ratio)
+        concept_model = concepts_model(num_attr=num_attr, freeze_parameters=freeze_parameters, 
+                                       expand_dim=0, model_state_dict=state_dict)
+        main_task_model = main_model(num_attr=num_attr, expand_dim = 1)
+        concept_model.to(device)
+        main_task_model.to(device)
+
+        concept_optimizer = init_optimizer(concept_model.parameters())
+        main_optimizer = init_optimizer(main_task_model.parameters())
+
+        trainer_concepts = ResNetTrainer(concept_model, num_attr, train_dataloader, val_dataloader, concept_optimizer, 
+                                         device, lambda_ = lambda_, num_epochs=epochs, concepts=True, 
+                                         bottleneck=True, weight_attr=imbalance_ratio_attr)
+        trainer_concepts.train()
+
+        trainer_main =  ResNetTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
+                                      main_optimizer, device, lambda_ = lambda_, num_epochs=epochs, 
+                                      concepts=False, main_only=True, weight_main=imbalance_ratio)
         trainer_main.train()
 
-    del model
-    del train_dataset
-    del val_dataset
-    del train_dataloader
-    del val_dataloader
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        if model_type in ["joint", "standard"]:
+            torch.save(model.state_dict(), save_path)
+            print(f"Model saved to {save_path}")
+        elif model_type == "independent":
+            torch.save({"concept_model": concept_model.state_dict(),
+                        "main_task_model": main_task_model.state_dict()
+                        }, save_path)
+            print(f"Concept and main task models saved to {save_path}")
+
     torch.cuda.empty_cache()
     gc.collect()
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -88,6 +129,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=100, help="How many epochs to run the training for")
     parser.add_argument("--use_concepts", action="store_true", help="Whether to use concepts or not")
     parser.add_argument("--freeze_parameters", action="store_true", help="Whether to freeze the parameters of the network for concept prediction")
+    parser.add_argument("--save_path", type=str, default = None, help="Where to save the model")
+    parser.add_argument("--model_path", type=str, default = None, help="If specified, loads the state dict of a chosen model")
     parser.add_argument("--seed", type=int, default=42, help="Execution seed")
 
     args = parser.parse_args()
@@ -96,7 +139,7 @@ def main():
 
     device = torch.device(args.device)
 
-    train_model(args.dataframe_path, args.model_type, device, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.freeze_parameters)
+    train_model(args.dataframe_path, args.model_type, device, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.freeze_parameters, args.save_path, args.model_path)
 
 
 if __name__ == "__main__":
