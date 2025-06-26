@@ -1,5 +1,6 @@
 import json
 import re
+import torch
 from ollama import Client
 
 client = Client(host="http://localhost:6000")
@@ -53,20 +54,25 @@ def first_vlm_query(category, model_name, sample, anomalous = True):
 #second VLM query
 def second_vlm_query(category, model_name, sample, concept_list, anomalous = True):
     image_path = sample["image_path"]
+    if anomalous:
+         mask_path = sample["mask_path"]
     label = sample["label"]
 
     if anomalous:
-        message = f"You are an expert evaluating an industrial image to detect anomalies. I provide an image of a {category}"\
-                f"The image has been classified as anomalous, which implies that it shows a visible defect, alteration or damage. The defect is {label}."\
+        message = f"You are an expert evaluating an industrial image to detect anomalies. The first image I provide is an image of a {category}"\
+                f"The image has been classified as anomalous, which implies that it shows a visible defect, alteration or damage. The defect is {label}, and the second image shows the localization of the defect with an anomaly mask."\
                 f"Knowing this, choose which concepts you see in the image among the following list of attributes: {concept_list}."\
                 "Output the result as a JSON object of this form: {concept_1: true, concept_2: false, ...}. Output ONLY the JSON object, nothing else."
+        
+        response = client.chat(model=model_name, messages=[{"role": "user", "content": message, "images": [image_path, mask_path]}])
+
     else:
         message = f"You are an expert evaluating an industrial image to detect anomalies. I provide an image of a {category}"\
                 "The image has been classified as normal, which implies that there is no visible defect, anomaly or issue."\
                 f"Knowing this, choose which concepts you see in the image among the following list of attributes: {concept_list}."\
                 "Output the result as a JSON object of this form: {concept_1: true, concept_2: false, ...}. Output ONLY the JSON object, nothing else."
     
-    response = client.chat(model=model_name, messages=[{"role": "user", "content": message, "images": [image_path]}])
+        response = client.chat(model=model_name, messages=[{"role": "user", "content": message, "images": [image_path]}])
 
     try:
         concept_json = extract_json(response["message"]["content"])
@@ -77,3 +83,5 @@ def second_vlm_query(category, model_name, sample, concept_list, anomalous = Tru
     vector = concepts_to_vectors(concept_json, concept_list)
 
     return vector
+
+

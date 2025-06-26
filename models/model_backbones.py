@@ -49,17 +49,31 @@ class MLP(nn.Module):
         return x
 
 
-class ResNet18model(nn.Module):
+class BackboneModel(nn.Module):
     def __init__(self,
                  num_attr: int,
                  freeze_parameters: bool,
                  expand_dim: int = 0,
-                 bottleneck: bool = True):
+                 bottleneck: bool = True,
+                 backbone: str = "resnet18"):
         
-        super(ResNet18model, self).__init__()
+        super(BackboneModel, self).__init__()
+        
+        self.num_attr = num_attr
+        self.bottleneck = bottleneck
 
-        #load pretrained resnet
-        base_model = models.resnet18(pretrained = True)
+        #load pretrained model
+        if backbone == "resnet18":
+            base_model = models.resnet18(pretrained = True)
+            feature_dim = base_model.fc.in_features
+            self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1]) #remove last FC layer
+        elif backbone == "mobilenet_v2":
+            base_model = models.mobilenet_v2(pretrained=True)
+            feature_dim = base_model.last_channel
+            self.feature_extractor = base_model.features
+            self.pool = nn.AdaptiveAvgPool2d(1) #add pooling layer since mobilenet ends with conv
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
 
         #freeze layers by default
         for name, param in base_model.named_parameters():
@@ -67,15 +81,9 @@ class ResNet18model(nn.Module):
         if not freeze_parameters: 
             #fine-tune last layer
             for name, param in base_model.named_parameters():
-                if "layer4" in name:
+                if ("layer4" in name or #resnet18
+                    any(f"features.{i}" in name for i in range(14, 19))): #mobilenet_v2
                     param.requires_grad = True
-
-
-        self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1]) #remove last FC layer
-        feature_dim = base_model.fc.in_features
-
-        self.num_attr = num_attr
-        self.bottleneck = bottleneck
 
         self.fc_layers = nn.ModuleList() #list of fc layers for each prediction; main task is always the first fc layer
 
@@ -89,6 +97,8 @@ class ResNet18model(nn.Module):
     
     def forward(self, x):
         x = self.feature_extractor(x)
+        if hasattr(self, "pool"):
+            x = self.pool(x)
         x = torch.flatten(x, 1)
 
         predictions = []

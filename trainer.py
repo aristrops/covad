@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-import torch.nn as nn
 import copy
+import os
 
 from metrics import AverageMeter, binary_accuracy
 from sklearn.metrics import f1_score
@@ -21,7 +21,8 @@ class ResNetTrainer:
                  concepts: bool = True, 
                  main_only: bool = False, 
                  weight_main: bool = None, 
-                 weight_attr: bool = None):
+                 weight_attr: bool = None,
+                 save_path = None):
         
         self.model = model.to(device)
         self.num_attr = num_attr
@@ -35,6 +36,7 @@ class ResNetTrainer:
         self.bottleneck = bottleneck
         self.concepts = concepts
         self.main_only = main_only
+        self.save_path = save_path
 
         if weight_main is not None:
             pos_weight = torch.tensor(weight_main, dtype=torch.float32).to(device)
@@ -263,3 +265,9 @@ class ResNetTrainer:
         
         self.model.load_state_dict(self.best_model_wts)
         print("Best model restored.")
+
+        if self.save_path is not None:
+            os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
+            torch.save(self.model.state_dict(), self.save_path)
+            print(f"Model saved to {self.save_path}")
+        
