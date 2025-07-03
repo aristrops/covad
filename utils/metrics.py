@@ -26,27 +26,6 @@ def binary_accuracy(output, target):
     return accuracy
 
 
-# def f1_score(output, target):
-#     pred = (output.cpu() >= 0.5).int()
-#     target = target.cpu().int()
-
-#     tp = (pred * target).sum().item()
-#     fp = (pred * (1 - target)).sum().item()
-#     fn = ((1 - pred) * target).sum().item()
-
-#     if tp + fp == 0 or tp + fn == 0:
-#         return 0.0 
-
-#     precision = tp / (tp + fp)
-#     recall = tp / (tp + fn)
-
-#     if precision + recall == 0:
-#         return 0.0
-
-#     f1 = 2 * (precision * recall) / (precision + recall)
-
-#     return f1 * 100
-
 def f1_score(output, target):
     pred = (output.cpu() >= 0.5).int()
     target = target.cpu().int()
@@ -66,3 +45,4 @@ def f1_score(output, target):
     f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
     return f1 * 100
+

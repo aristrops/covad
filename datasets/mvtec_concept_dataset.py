@@ -66,7 +66,7 @@ class MvTecConceptDataset(Dataset):
         if self.use_attr:
             attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float32))
             if self.load_image:
-                return image, label, attr_label
+                return image, attr_label, label
             else:
                 return attr_label, label
         else:

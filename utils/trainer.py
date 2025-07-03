@@ -3,7 +3,7 @@ import torch
 import copy
 import os
 
-from metrics import AverageMeter, binary_accuracy
+from utils.metrics import AverageMeter, binary_accuracy
 from sklearn.metrics import f1_score
 
 class ResNetTrainer:
@@ -121,7 +121,7 @@ class ResNetTrainer:
             all_attr_preds = all_attr_targets = None
             accuracy_meter_attr = None
 
-        for images, labels, concepts in dataloader:
+        for images, concepts, labels in dataloader:
             images, labels = images.to(self.device), labels.float().to(self.device)
             concepts = concepts.to(self.device) if self.concepts else None
 

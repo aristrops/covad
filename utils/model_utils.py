@@ -22,7 +22,7 @@ def inference(image, model, use_relu = False, use_sigmoid = False):
     return list(attr_outputs.data.cpu().numpy())
 
 
-def generate_concept_logits(model, dataframe, save_path, splits = ["train", "val"], use_relu = False, use_sigmoid = False):
+def generate_concept_logits(model, dataframe, save_path, splits = ["train", "val", "test"], use_relu = False, use_sigmoid = False):
     
     updated_rows = []
 
@@ -44,6 +44,9 @@ def generate_concept_logits(model, dataframe, save_path, splits = ["train", "val
 
     #combine rows
     new_df = pd.DataFrame(updated_rows)
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    new_df.to_csv(save_path, index = False)
-    print(f"Saved new logits dataset to {save_path}")
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        new_df.to_csv(save_path, index = False)
+        print(f"Saved new logits dataset to {save_path}")
+    
+    return new_df

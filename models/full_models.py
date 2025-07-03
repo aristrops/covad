@@ -7,7 +7,7 @@ def joint_model(num_attr, expand_dim, use_relu, use_sigmoid, freeze_parameters, 
         print(f"Using weights of pre-trained model for attribute prediction...")
         model_1.load_state_dict(model_state_dict, strict = False)
     if freeze_parameters:
-        print("Training with frozen parameters...")
+        print("Using frozen parameters...")
     else:
         print("Fine-tuning last layer...")
     model_2 = MLP(input_dim=num_attr, expand_dim=expand_dim)
@@ -21,7 +21,7 @@ def standard_model(freeze_parameters, backbone = "resnet18", model_state_dict = 
         print(f"Using weights of pre-trained model...")
         model.load_state_dict(model_state_dict)
     if freeze_parameters:
-        print("Training with frozen parameters...")
+        print("Using frozen parameters...")
     else:
         print("Fine-tuning last layer...")
     return model
@@ -33,10 +33,13 @@ def concepts_model(num_attr, freeze_parameters, expand_dim, backbone = "resnet18
         model.load_state_dict(model_state_dict, strict=False)
         print(f"Using weights of pre-trained model...")
     if freeze_parameters:
-        print("Training with frozen parameters...")
+        print("Using frozen parameters...")
     else:
         print("Fine-tuning last layer...")
     return model
 
-def main_model(num_attr, expand_dim): #for main prediction in independent and sequential model
-    return MLP(input_dim=num_attr, expand_dim=expand_dim)
+def main_model(num_attr, expand_dim, model_state_dict = None): #for main prediction in independent and sequential model
+    model = MLP(input_dim=num_attr, expand_dim=expand_dim)
+    if model_state_dict is not None:
+        model.load_state_dict(model_state_dict) 
+    return model
