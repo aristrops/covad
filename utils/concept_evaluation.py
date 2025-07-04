@@ -1,7 +1,9 @@
 import numpy as np
+import pandas as pd
 
 from sklearn.svm import LinearSVC
 from sklearn.metrics import f1_score
+from sklearn.ensemble import RandomForestClassifier
 
 #compute pearson correlation coefficient
 def compute_pearson_correlation(dataframe):
@@ -30,7 +32,7 @@ def compute_leakage(sorted_concepts, gt_concepts_train, gt_concepts_test, pred_c
     gaps = []
 
     for i in range(1, len(sorted_concepts) + 1):
-        print(f"Fitting SVM to {i} concept(s)...")  
+        #print(f"Fitting SVM to {i} concept(s)...")  
         concepts_to_use = sorted_concepts[:i]
 
         gt_C_train = gt_concepts_train[concepts_to_use].values
@@ -40,13 +42,13 @@ def compute_leakage(sorted_concepts, gt_concepts_train, gt_concepts_test, pred_c
         predicted_C_test = pred_concepts_test[concepts_to_use].values
 
         gt_f1 = fit_svm(gt_C_train, y_train, gt_C_test, y_test)
-        print(f"GT F1-score for {i} concept(s): {gt_f1:.2f}")
+        #print(f"GT F1-score for {i} concept(s): {gt_f1:.2f}")
 
         predicted_f1 = fit_svm(predicted_C_train, y_train, predicted_C_test, y_test)
-        print(f"Predicted F1-score for {i} concept(s): {predicted_f1:.2f}")
+        #print(f"Predicted F1-score for {i} concept(s): {predicted_f1:.2f}")
 
         gaps.append(predicted_f1-gt_f1)
-        print(f"Gap using {i} concept(s): {predicted_f1-gt_f1:.2f}\n")
+        #print(f"Gap using {i} concept(s): {predicted_f1-gt_f1:.2f}\n")
     
     
     gaps = np.array(gaps)
@@ -55,4 +57,66 @@ def compute_leakage(sorted_concepts, gt_concepts_train, gt_concepts_test, pred_c
 
     return leakage
     
+
+def compute_relevance_matrix(predicted_concepts, gt_concepts):
+    num_pred = predicted_concepts.shape[1]
+    num_gt = gt_concepts.shape[1]
+
+    R = np.zeros((num_pred, num_gt))
+
+    for j in range(num_gt):
+        y_j = gt_concepts.iloc[:, j]
+
+        rf = RandomForestClassifier(n_estimators = 10) #fix n = 10 as in the paper
+        rf.fit(predicted_concepts.values, y_j)
+
+        importances = rf.feature_importances_
+        R[:, j] = importances
+    
+    return R
+
+
+def compute_disentanglement(R):
+    k = R.shape[1]
+
+    eps = 1e-12
+    P = R / (np.sum(R, axis = 1, keepdims=True) + eps) #normalize
+
+    #compute entropy
+    entropy = -np.sum(P * np.emath.logn(k, P + eps), axis = 1)
+    
+    #compute disentanglement
+    disentanglement = 1 - entropy
+
+    return disentanglement
+
+
+def compute_dci(predicted_concepts, gt_concepts):
+    eps = 1e-12
+
+    R = compute_relevance_matrix(predicted_concepts, gt_concepts)
+    disentanglement = compute_disentanglement(R)
+
+    weights = np.sum(R, axis = 1)
+    total_weight = np.sum(R)
+
+    rho = weights / (total_weight + eps)
+
+    overall_dci = np.sum(rho * disentanglement)
+
+    return overall_dci
+
+
+def compute_ois(predicted_concepts, gt_concepts):
+    R_gt = compute_relevance_matrix(gt_concepts, gt_concepts)
+    R = compute_relevance_matrix(predicted_concepts, gt_concepts)
+
+    k = R.shape[1]
+
+    norm_fn = lambda x: np.linalg.norm(x, ord='fro')
+
+    impurity = norm_fn(np.abs(R_gt - R))
+    impurity = impurity / (k / 2)
+
+    return impurity
 

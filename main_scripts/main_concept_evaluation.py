@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 from datasets.mvtec_concept_dataset import MvTecConceptDataset
-from utils.concept_evaluation import compute_pearson_correlation, compute_leakage
+from utils.concept_evaluation import compute_pearson_correlation, compute_leakage, compute_dci, compute_ois
 
 def compute_metrics(category: str,
                     dataframe_path: str,
@@ -31,6 +31,14 @@ def compute_metrics(category: str,
     
     if "leakage" in metrics:
         leakage = compute_leakage(sorted_concept_corr, gt_concepts_train, gt_concepts_test, predicted_concepts_train, predicted_concepts_test, y_train, y_test)
-        print(f"Concept for {category} category: {leakage:.2f}")
+        print(f"Concept leakage for {category} category: {leakage:.2f}")
+    
+    if "disentanglement" in metrics:
+        disentanglement = compute_dci(predicted_concepts_train, gt_concepts_train)
+        print(f"Concept disentanglement for {category} category: {disentanglement:.2f}")
+    
+    if "impurity" in metrics:
+        ois = compute_ois(predicted_concepts_train, gt_concepts_train)
+        print(f"OIS for {category} category: {ois:.2f}")
 
-compute_metrics("hazelnut", "/mnt/disk1/arianna_stropeni/cbm_data/mvtec/hazelnut_dataset.csv", metrics = ["leakage"], predicted_dataframe_path= "/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/hazelnut/independent_logits.csv")
+compute_metrics("hazelnut", "/mnt/disk1/arianna_stropeni/cbm_data/mvtec/hazelnut_dataset.csv", metrics = ["leakage", "disentanglement", "impurity"], predicted_dataframe_path= "/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/hazelnut/independent_logits.csv")
