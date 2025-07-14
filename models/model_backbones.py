@@ -52,6 +52,7 @@ class MLP(nn.Module):
 class BackboneModel(nn.Module):
     def __init__(self,
                  num_attr: int,
+                 num_classes: int,
                  freeze_parameters: bool,
                  expand_dim: int = 0,
                  bottleneck: bool = True,
@@ -60,6 +61,7 @@ class BackboneModel(nn.Module):
         super(BackboneModel, self).__init__()
         
         self.num_attr = num_attr
+        self.num_classes = num_classes
         self.bottleneck = bottleneck
 
         #load pretrained model
@@ -93,7 +95,7 @@ class BackboneModel(nn.Module):
             for _ in range(self.num_attr):
                 self.fc_layers.append(FC(feature_dim, 1, expand_dim))
         else:
-            self.fc_layers.append(FC(feature_dim, 1, expand_dim))
+            self.fc_layers.append(FC(feature_dim, num_classes, expand_dim))
     
     def forward(self, x):
         x = self.feature_extractor(x)

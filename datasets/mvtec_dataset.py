@@ -10,11 +10,9 @@ from typing import Optional
 from torchvision.transforms.functional import InterpolationMode
 from pathlib import Path
 
-from moviad.backbones.micronet.utils import compute_mask_contamination
 from moviad.datasets.iad_dataset import IadDataset
 from moviad.datasets.exceptions.exceptions import DatasetTooSmallToContaminateException
 from moviad.utilities.configurations import TaskType, Split, LabelName
-from moviad.models.patchcore.features_dataset import CustomFeatureCompressor
 
 IMG_EXTENSIONS = (".png", ".PNG")
 
@@ -210,45 +208,6 @@ class MVTecDataset(IadDataset):
 
     def __len__(self) -> int:
         return len(self.samples)
-
-    def contaminate(self, source: 'IadDataset', ratio: float, seed: int = 42) -> int:
-        if type(source) != MVTecDataset:
-            raise ValueError("Dataset should be of type MVTecDataset")
-        if self.samples is None:
-            raise ValueError("Destination dataset is not loaded")
-        if source.samples is None:
-            raise ValueError("Source dataset is not loaded")
-
-        torch.manual_seed(seed)
-        contamination_set_size = int(math.floor(len(self.samples) * ratio))
-        contaminated_entries_indices = source.samples[source.samples["label_index"] == LabelName.ABNORMAL.value].index
-        if len(contaminated_entries_indices) < contamination_set_size:
-            raise DatasetTooSmallToContaminateException(
-                f"Source dataset does not contain enough abnormal entries to contaminate the destination dataset. "
-                f"Source dataset contains {len(contaminated_entries_indices)} abnormal entries, "
-                f"while {contamination_set_size} are required."
-            )
-
-        contaminated_entries_indices = np.random.choice(contaminated_entries_indices, contamination_set_size,
-                                                        replace=False)
-        for index in contaminated_entries_indices:
-            entry_metadata = source.samples.iloc[index]
-            if source.preload_imgs:
-                entry = source.data[index]
-                self.data.append(entry)
-            else:
-                entry = self.transform_image(
-                    Image.open(self.samples.iloc[index].image_path).convert("RGB")
-                )
-                self.data.append(entry)
-                source.data = [e for e in source.data if hash(e) != hash(entry)]
-
-            self.samples = pd.concat([self.samples, pd.DataFrame([entry_metadata])], ignore_index=True)
-            index_label = source.samples.index[index]
-
-        source.samples = source.samples.drop(contaminated_entries_indices).reset_index(drop=True)
-        source.data = [source.data[i] for i in range(len(source.data)) if i not in contaminated_entries_indices]
-        return contamination_set_size
 
     def __getitem__(self, index: int):
         """

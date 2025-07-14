@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.svm import LinearSVC
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, matthews_corrcoef
 from sklearn.ensemble import RandomForestClassifier
 
 #compute pearson correlation coefficient
@@ -10,10 +10,15 @@ def compute_pearson_correlation(dataframe):
     df = dataframe.df
     concept_columns = dataframe.attr_cols
 
-    correlations = df[concept_columns].apply(lambda col: df["label_index"].corr(col))
-    sorted_correlations = correlations.abs().sort_values(ascending = True)
+    correlations = {
+        col: matthews_corrcoef(df["label_index"], df[col])
+        for col in concept_columns
+    }
 
-    return sorted_correlations.index.tolist()
+    sorted_correlations = dict(sorted(correlations.items(), key=lambda item: abs(item[1])))
+
+    return list(sorted_correlations.keys())
+
 
 #compute leakage
 def fit_svm(X_train, y_train, X_test, y_test):

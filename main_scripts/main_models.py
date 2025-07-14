@@ -10,8 +10,8 @@ from models.full_models import joint_model, standard_model, concepts_model, main
 from utils.trainer import ResNetTrainer
 from utils.evaluator import Evaluator
 
-def load_dataset(df, split, use_attr = True, load_image = True):
-        return MvTecConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image)
+def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False):
+    return MvTecConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass)
 
 def make_dataloader(dataset, batch_size, shuffle = True):
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
@@ -26,6 +26,7 @@ def train_model(dataframe_path: str,
                 lr: float = 1e-3, 
                 epochs: int = 100, 
                 use_concepts: bool = True, 
+                multiclass: bool = False,
                 freeze_parameters: bool = True, 
                 save_path: str = None,
                 save_path_concepts: str = None,
@@ -37,15 +38,20 @@ def train_model(dataframe_path: str,
             return torch.optim.Adam(params, lr = lr)
         
     dataframe = pd.read_csv(dataframe_path)
-    concepts = [col for col in dataframe.columns if col not in ["image_path", "label_index", "mask_path", "split", "anomaly_type"]]
-    num_attr = len(concepts) if use_concepts else None
+    # concepts = [col for col in dataframe.columns if col not in ["image_path", "label_index", "mask_path", "split", "anomaly_type"]]
+    # num_attr = len(concepts) if use_concepts else None
 
     state_dict = torch.load(model_path) if model_path else None
 
-    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts)
-    val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts)
+    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass)
+    val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts, multiclass=multiclass)
     train_dataloader = make_dataloader(train_dataset, batch_size)
     val_dataloader = make_dataloader(val_dataset, batch_size, shuffle = False)
+
+    num_classes = train_dataset.num_classes if multiclass else None
+    if multiclass:
+        print(f"Number of labels: {num_classes}")
+    num_attr = len(train_dataset.attr_cols) if use_concepts else None
 
     if model_type == "independent":
         train_dataset_no_img = load_dataset(dataframe, "train", load_image=False)
@@ -56,14 +62,18 @@ def train_model(dataframe_path: str,
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
 
-    imbalance_ratio, label_counts = train_dataset.find_class_imbalance("main")
-    print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
-    print("Label Counts in training set:", label_counts)
+    if not multiclass:
+        imbalance_ratio, label_counts = train_dataset.find_class_imbalance("main") 
+        print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
+        print("Label Counts in training set:", label_counts)
+    else:
+        imbalance_ratio = None
 
     imbalance_ratio_attr = None
     if use_concepts:
         imbalance_ratio_attr, label_counts_attr = train_dataset.find_class_imbalance("attributes")
 
+    print(f"Training {model_type} model...")
     #initialize the model
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
@@ -76,16 +86,19 @@ def train_model(dataframe_path: str,
         trainer.train() 
     
     elif model_type == "standard":
-        model = standard_model(freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone)
+        if multiclass:
+            model = standard_model(freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone, num_classes=num_classes)
+        else:
+            model = standard_model(freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone, num_classes=1)
         model.to(device)
         optimizer = init_optimizer(model.parameters())
         trainer = ResNetTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, 
                                 device, lambda_ = lambda_, num_epochs=epochs, concepts=False, 
-                                main_only=True, weight_main=imbalance_ratio, save_path=save_path) 
+                                main_only=True, multiclass=multiclass, weight_main=imbalance_ratio, save_path=save_path) 
         trainer.train() 
 
     elif model_type == "independent" or model_type == "sequential":
-        #common first step: attribute prediction
+        # common first step: attribute prediction
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=freeze_parameters, 
                                        expand_dim=0, model_state_dict=state_dict, backbone=backbone)
         concept_model.to(device)
@@ -199,6 +212,7 @@ def main():
     parser.add_argument("--lr", type = float, default = 1e-3, help="Learning rate to use")
     parser.add_argument("--epochs", type=int, default=100, help="How many epochs to run the training for")
     parser.add_argument("--use_concepts", action="store_true", help="Whether to use concepts or not")
+    parser.add_argument("--multiclass", action="store_true", help="Train the model to perform multiclass classification")
     parser.add_argument("--freeze_parameters", action="store_true", help="Whether to freeze the parameters of the network for concept prediction")
     parser.add_argument("--save_path", type=str, default = None, help="Where to save the model")
     parser.add_argument("--save_path_concepts", type=str, default = None, help="Where to save the concepts model")
@@ -213,7 +227,7 @@ def main():
     device = torch.device(args.device)
 
     if args.mode == "train":
-        train_model(args.dataframe_path, args.model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.freeze_parameters, args.save_path, args.save_path_concepts, args.save_path_new_df, args.model_path)
+        train_model(args.dataframe_path, args.model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.save_path, args.save_path_concepts, args.save_path_new_df, args.model_path)
     elif args.mode == "test":
         test_model(args.dataframe_path, args.model_type, device, args.backbone, args.batch_size, args.use_concepts, args.save_path_new_df, args.save_path, args.save_path_concepts)
     else:

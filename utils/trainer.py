@@ -20,6 +20,7 @@ class ResNetTrainer:
                  bottleneck: bool = False, 
                  concepts: bool = True, 
                  main_only: bool = False, 
+                 multiclass: bool = False,
                  weight_main: bool = None, 
                  weight_attr: bool = None,
                  save_path = None):
@@ -36,13 +37,17 @@ class ResNetTrainer:
         self.bottleneck = bottleneck
         self.concepts = concepts
         self.main_only = main_only
+        self.multiclass = multiclass
         self.save_path = save_path
 
         if weight_main is not None:
             pos_weight = torch.tensor(weight_main, dtype=torch.float32).to(device)
             self.main_criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         else:
-            self.main_criterion = torch.nn.BCEWithLogitsLoss()
+            if self.multiclass:
+                self.main_criterion = torch.nn.CrossEntropyLoss()
+            else:
+                self.main_criterion = torch.nn.BCEWithLogitsLoss()
         
         if concepts:
             self.attr_criterion = []
@@ -68,7 +73,10 @@ class ResNetTrainer:
         self.model.train() if is_training else self.model.eval()
 
         for inputs, labels in dataloader:
-            inputs, labels = inputs.to(self.device), labels.float().to(self.device)
+            if self.multiclass:
+                inputs, labels = inputs.to(self.device), labels.long().to(self.device)
+            else:
+                inputs, labels = inputs.to(self.device), labels.float().to(self.device)
 
             if isinstance(inputs, list):
                 inputs = torch.stack(inputs).t().float()
@@ -78,11 +86,17 @@ class ResNetTrainer:
 
             loss = self.main_criterion(logits, labels)
 
-            probs = torch.sigmoid(logits)
-            preds = (probs >= 0.5).int()
+            if self.multiclass:
+                preds = torch.argmax(logits, dim = 1)
+            else:
+                probs = torch.sigmoid(logits)
+                preds = (probs >= 0.5).int()
 
             loss_meter.update(loss.item(), inputs.size(0))
-            accuracy_meter.update(binary_accuracy(probs, labels).item(), inputs.size(0))
+            if self.multiclass:
+                accuracy_meter.update((preds == labels).float().mean().item(), inputs.size(0))
+            else:
+                accuracy_meter.update(binary_accuracy(probs, labels).item(), inputs.size(0))
             
             all_main_preds.append(preds.cpu())
             all_main_targets.append(labels.cpu().int())
@@ -95,13 +109,16 @@ class ResNetTrainer:
         all_main_preds = torch.cat(all_main_preds).numpy()
         all_main_targets = torch.cat(all_main_targets).numpy()
 
-        if is_training:
+        if is_training and not self.multiclass:
             print("Count of label=0:", np.sum(all_main_targets == 0))
             print("Count of label=1:", np.sum(all_main_targets == 1))
             print("Count of predictions=0:", np.sum(all_main_preds == 0))
             print("Count of predictions=1:", np.sum(all_main_preds == 1))
 
-        f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
+        if self.multiclass:
+            f1_main = f1_score(all_main_targets, all_main_preds, average="weighted")
+        else:
+            f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
         
         return loss_meter, accuracy_meter, f1_main
 
@@ -201,6 +218,7 @@ class ResNetTrainer:
         if all_attr_preds:
             all_attr_preds = torch.cat(all_attr_preds).numpy()
             all_attr_targets = torch.cat(all_attr_targets).numpy()
+
             f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "macro")
         else:
             f1_attr = 0

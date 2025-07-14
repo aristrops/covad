@@ -12,6 +12,7 @@ class MvTecConceptDataset(Dataset):
         dataframe,
         split: str,
         load_image: bool = True,
+        multiclass: bool = False,
         apply_transformation: bool = True,
         img_size=(224, 224),
         use_attr: bool = True,
@@ -19,16 +20,20 @@ class MvTecConceptDataset(Dataset):
     ) -> None:
         super(MvTecConceptDataset)
 
-        self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
-
-        exclude_cols = ["image_path", "label_index", "mask_path", "split", "anomaly_type"]
-        self.attr_cols = [col for col in self.df.columns if col not in exclude_cols]
-
         self.split = split
         self.load_image = load_image
+        self.multiclass = multiclass
         self.apply_transformation = apply_transformation
         self.use_attr = use_attr
         self.n_class_attr = n_class_attr
+
+        self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
+
+        if self.multiclass:
+            self.num_classes = self.df["category_index"].nunique()
+
+        exclude_cols = ["image_path", "label_index", "mask_path", "split", "anomaly_type"]
+        self.attr_cols = [col for col in self.df.columns if col not in exclude_cols]
 
         transform = transforms.Compose([transforms.Resize(img_size),
                                         transforms.ToTensor(),
@@ -55,7 +60,10 @@ class MvTecConceptDataset(Dataset):
         image_path = row["image_path"]
 
         image = Image.open(image_path).convert("RGB")
-        label = row["label_index"]
+        if self.multiclass:
+            label = row["category_index"]
+        else:
+            label = row["label_index"]
 
         if self.apply_transformation:
             if self.split == "train":
@@ -86,6 +94,10 @@ class MvTecConceptDataset(Dataset):
                 num_positives = self.df[attr].sum()
                 label_counts.append(int(num_positives))
 
-                imbalance_ratio.append(num_total / num_positives - 1)
+                if num_positives > 0:
+                    imbalance_ratio.append(num_total / num_positives - 1)
+                else:
+                    imbalance_ratio.append(0)
+
         
         return imbalance_ratio, label_counts
