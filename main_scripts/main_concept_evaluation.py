@@ -1,14 +1,11 @@
 import pandas as pd
-import numpy as np
-import torch
 
 from datasets.mvtec_concept_dataset import MvTecConceptDataset
-from utils.concept_evaluation import compute_pearson_correlation, compute_leakage, compute_dci, compute_ois
+from utils.metrics import compute_pearson_correlation, compute_leakage, compute_dci, compute_ois
 
 def compute_metrics(categories: str,
                     automated: bool,
-                    metrics: list,
-                    predicted_dataframe_path: str = None):
+                    metrics: list):
     
     for category in categories:
         print(f"Computing concept quality for category {category}...")

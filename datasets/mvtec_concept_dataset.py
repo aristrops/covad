@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from PIL import Image
 import torch
 
@@ -16,6 +17,7 @@ class MvTecConceptDataset(Dataset):
         apply_transformation: bool = True,
         img_size=(224, 224),
         use_attr: bool = True,
+        load_mask: bool = False,
         n_class_attr: int = 2
     ) -> None:
         super(MvTecConceptDataset)
@@ -25,6 +27,7 @@ class MvTecConceptDataset(Dataset):
         self.multiclass = multiclass
         self.apply_transformation = apply_transformation
         self.use_attr = use_attr
+        self.load_mask = load_mask
         self.n_class_attr = n_class_attr
 
         self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
@@ -58,27 +61,31 @@ class MvTecConceptDataset(Dataset):
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         image_path = row["image_path"]
+        mask_path = row["mask_path"]
 
         image = Image.open(image_path).convert("RGB")
-        if self.multiclass:
-            label = row["category_index"]
-        else:
-            label = row["label_index"]
+        if self.load_mask:
+            if isinstance(mask_path, str):
+                mask = Image.open(mask_path).convert("L") 
+            else:
+                mask = Image.new("L", image.size, color=0)
+            mask = transforms.ToTensor()(mask)
+        
+        label = row["category_index"] if self.multiclass else row["label_index"]
 
         if self.apply_transformation:
-            if self.split == "train":
-                image = self.transform_augment(image)
-            else:
-                image = self.transform(image)
+            image = self.transform_augment(image) if self.split == "train" else self.transform(image)
 
         if self.use_attr:
             attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float32))
             if self.load_image:
                 return image, attr_label, label
-            else:
-                return attr_label, label
-        else:
-            return image, label
+            return attr_label, label
+        
+        if self.load_mask:
+            return image, label, mask
+        
+        return image, label
     
     def find_class_imbalance(self, type = "main"):
         num_total = len(self.df)

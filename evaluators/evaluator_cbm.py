@@ -4,7 +4,7 @@ import numpy as np
 from utils.metrics import AverageMeter, binary_accuracy
 from sklearn.metrics import f1_score, roc_auc_score
 
-class Evaluator:
+class CBMEvaluator:
     def __init__(self,
                  model,
                  num_attr: int,
@@ -34,10 +34,9 @@ class Evaluator:
             all_main_preds = all_main_targets = None
 
         if not self.main_only:
-            all_attr_probs, all_attr_targets = [], []
+            all_attr_probs, all_attr_preds, all_attr_targets = [], [], []
         else:
-            all_attr_probs = None
-            all_attr_targets = None
+            all_attr_probs = all_attr_preds = all_attr_targets = None
             accuracy_meter_attr = None
         
         for sample in self.test_dataloader:
@@ -73,8 +72,10 @@ class Evaluator:
                     attr_logits = torch.cat(predictions, dim = 1)
                 
                 probs_attr = torch.sigmoid(attr_logits)
+                attr_preds = (probs_attr >= 0.5).int()
 
                 all_attr_probs.append(probs_attr.cpu())
+                all_attr_preds.append(attr_preds.cpu())
                 all_attr_targets.append(concepts.cpu().int())
 
                 accuracy_attr = binary_accuracy(probs_attr, concepts)
@@ -91,6 +92,7 @@ class Evaluator:
 
         if all_attr_probs:
             all_attr_probs = torch.cat(all_attr_probs).numpy()
+            all_attr_preds = torch.cat(all_attr_preds).numpy()
             all_attr_targets = torch.cat(all_attr_targets).numpy()
 
             #compute AUC
@@ -103,15 +105,21 @@ class Evaluator:
                     aucs.append(np.nan)
 
             mean_auc = np.nanmean(aucs)
+            #compute F1 score
+            f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "macro")
+
         else:
             mean_auc = 0
+            f1_attr = 0
 
         if self.bottleneck:
             print(f"Accuracy of the concept prediction task: {accuracy_meter_attr.avg.item():.2f}")
             print(f"AUC of the concept prediction task: {mean_auc:.2f}")
+            print(f"F1 Score of the attribute prediction task: {f1_attr:.2f}")
         else:
             print(f"Accuracy of the main task: {accuracy_meter_main.avg:.2f}")
             print(f"F1 Score of the main task: {f1_main:.2f}")
             if self.concepts:
                 print(f"Accuracy of the concept prediction task: {accuracy_meter_attr.avg.item():.2f}")
                 print(f"AUC of the concept prediction task: {mean_auc:.2f}")
+                print(f"F1 Score of the attribute prediction task: {f1_attr:.2f}")

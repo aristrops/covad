@@ -6,17 +6,18 @@ import os
 from utils.metrics import AverageMeter, binary_accuracy
 from sklearn.metrics import f1_score
 
-class ResNetTrainer:
+class CBMTrainer:
     def __init__(self, 
                  model, 
                  num_attr: int, 
                  train_dataloader, 
                  val_dataloader, 
                  optimizer, 
+                 scheduler,
                  device: torch.device, 
                  lambda_: float, 
                  num_epochs: int, 
-                 patience: int = 5, 
+                 patience: int = 10, 
                  bottleneck: bool = False, 
                  concepts: bool = True, 
                  main_only: bool = False, 
@@ -30,6 +31,7 @@ class ResNetTrainer:
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.optimizer = optimizer
+        self.scheduler = scheduler
         self.device = device
         self.lambda_ = lambda_
         self.num_epochs = num_epochs
@@ -268,6 +270,9 @@ class ResNetTrainer:
                 
             print(log)
 
+            if hasattr(self, "scheduler") and self.scheduler is not None:
+                self.scheduler.step(val_loss)
+            
             if val_loss < self.best_val_loss:
                 self.best_val_epoch = epoch
                 self.best_val_loss = val_loss
@@ -288,4 +293,13 @@ class ResNetTrainer:
             os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
             torch.save(self.model.state_dict(), self.save_path)
             print(f"Model saved to {self.save_path}")
+        
+        if self.main_only:
+            return val_f1_main
+        
+        elif self.bottleneck:
+            return val_f1_attr
+        
+        else:
+            return val_f1_main, val_f1_attr
         

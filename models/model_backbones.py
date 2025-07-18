@@ -39,7 +39,8 @@ class MLP(nn.Module):
             self.linear = nn.Linear(input_dim, expand_dim)
             self.activation = nn.ReLU()
             self.linear_2 = nn.Linear(expand_dim, 1)
-        self.linear = nn.Linear(input_dim, 1)
+        else:
+            self.linear = nn.Linear(input_dim, 1)
     
     def forward(self, x):
         x = self.linear(x)
@@ -54,6 +55,7 @@ class BackboneModel(nn.Module):
                  num_attr: int,
                  num_classes: int,
                  freeze_parameters: bool,
+                 pretrained: bool = True,
                  expand_dim: int = 0,
                  bottleneck: bool = True,
                  backbone: str = "resnet18"):
@@ -66,7 +68,7 @@ class BackboneModel(nn.Module):
 
         #load pretrained model
         if backbone == "resnet18":
-            base_model = models.resnet18(pretrained = True)
+            base_model = models.resnet18(pretrained = pretrained)
             feature_dim = base_model.fc.in_features
             self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1]) #remove last FC layer
         elif backbone == "mobilenet_v2":
@@ -132,3 +134,49 @@ class FC(nn.Module):
             x = self.relu(x)
         x = self.fc(x)
         return x
+    
+
+#feature extractor model for STFPM
+class BackboneModelFeatures(nn.Module):
+    def __init__(self,
+                 pretrained: bool = True,
+                 backbone: str = "resnet18"):
+        super(BackboneModelFeatures, self).__init__()
+
+        self.backbone = backbone
+
+        #load pretrained model
+        if backbone == "resnet18":
+            base_model = models.resnet18(pretrained = pretrained)
+            self.feature_extractor = nn.Sequential(*list(base_model.children())[:-2]) #remove last AvgPool and FC layer
+        elif backbone == "mobilenet_v2":
+            base_model = models.mobilenet_v2(pretrained = pretrained)
+            self.feature_extractor = base_model.features
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+
+        #freeze layers by default
+        if pretrained:
+            for param in self.feature_extractor.parameters():
+                param.requires_grad = False
+    
+    def forward(self, x):
+        res = []
+        if self.backbone == "resnet18":
+            for name, module in self.feature_extractor._modules.items():
+                x = module(x)
+                if name in ["4", "5", "6"]:
+                    res.append(x)
+
+        elif self.backbone == "mobilenet_v2":
+            for idx, module in enumerate(self.feature_extractor):
+                x = module(x)
+                if idx in [3, 8, 14]:
+                    res.append(x)
+        
+        return res
+
+
+
+
+  
