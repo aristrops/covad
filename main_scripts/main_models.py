@@ -1,16 +1,18 @@
 import argparse
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
 import pandas as pd
 import gc
 
 from utils.model_utils import generate_concept_logits
-from datasets.mvtec_concept_dataset import MvTecConceptDataset
+from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, standard_model, concepts_model, main_model
 from trainers.trainer_cbm import CBMTrainer
 from evaluators.evaluator_cbm import CBMEvaluator
 
 def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False):
-    return MvTecConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass)
+    return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass)
 
 def make_dataloader(dataset, batch_size, shuffle = True):
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
@@ -27,7 +29,7 @@ def train_model(category: str,
                 epochs: int = 100, 
                 use_concepts: bool = True, 
                 multiclass: bool = False,
-                freeze_parameters: bool = True, 
+                freeze_parameters: bool = False, 
                 model_path: str = None,
                 save_concepts: bool = False):
     
@@ -39,8 +41,10 @@ def train_model(category: str,
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode = "min", factor = 0.1, patience = 5)
         return opt, scheduler
         
-    dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
-    save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth"
+    #dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
+    dataframe_path = "/mnt/disk1/arianna_stropeni/cbm_data/realiad/full_dataset.csv"
+    #save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth"
+    save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/fine-tuned-mobilenet-realiad.pth"
     save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated.pth"
     save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None
 
@@ -122,13 +126,7 @@ def train_model(category: str,
         main_task_model.to(device)
         main_optimizer, main_scheduler = init_optimizer(main_task_model.parameters())
 
-        if model_type == "independent":
-            trainer_main =  CBMTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
-                                        main_optimizer, main_scheduler, device, lambda_ = lambda_, num_epochs=epochs, 
-                                        concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path)
-            val_main_f1 = trainer_main.train()
-        
-        else:
+        if model_type == "sequential":
             #generate concept logits
             train_dataset_no_img = load_dataset(dataframe_new, "train", load_image=False)
             val_dataset_no_img = load_dataset(dataframe_new, "val", load_image=False)
@@ -136,10 +134,10 @@ def train_model(category: str,
             train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
             val_dataloader_no_img = make_dataloader(val_dataset_no_img, batch_size)
 
-            trainer_main =  CBMTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
-                                        main_optimizer, main_scheduler, device, lambda_ = lambda_, num_epochs=epochs, 
-                                        concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path)
-            val_main_f1 = trainer_main.train()
+        trainer_main =  CBMTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
+                                    main_optimizer, main_scheduler, device, lambda_ = lambda_, num_epochs=epochs, 
+                                    concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path)
+        val_main_f1 = trainer_main.train()
 
 
     torch.cuda.empty_cache()
@@ -166,7 +164,7 @@ def test_model(category: str,
         save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv"
         state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
 
-    test_dataset = load_dataset(dataframe, "val", use_attr=use_concepts)
+    test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
     test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
     num_attr = len(test_dataset.attr_cols) if use_concepts else None
 

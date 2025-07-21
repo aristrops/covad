@@ -7,7 +7,7 @@ from torchvision.transforms import transforms
 from torch.utils.data.dataset import Dataset
 
 
-class MvTecConceptDataset(Dataset):
+class ConceptDataset(Dataset):
     def __init__(
         self,
         dataframe,
@@ -20,7 +20,7 @@ class MvTecConceptDataset(Dataset):
         load_mask: bool = False,
         n_class_attr: int = 2
     ) -> None:
-        super(MvTecConceptDataset)
+        super(ConceptDataset)
 
         self.split = split
         self.load_image = load_image

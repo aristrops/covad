@@ -17,7 +17,7 @@ class CBMTrainer:
                  device: torch.device, 
                  lambda_: float, 
                  num_epochs: int, 
-                 patience: int = 10, 
+                 patience: int = 5, 
                  bottleneck: bool = False, 
                  concepts: bool = True, 
                  main_only: bool = False, 

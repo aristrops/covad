@@ -1,14 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-import copy
 import os
 
 import torch.nn.functional as F
 
-from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
-from scipy.ndimage import gaussian_filter, binary_fill_holes
-from skimage.measure import label, regionprops
+from sklearn.metrics import roc_auc_score
+from scipy.ndimage import gaussian_filter
+
+from utils.metrics import compute_pixel_f1, min_max_norm, compute_pixel_pro, compute_pixel_pr
 
 class STFPMEvaluator:
     def __init__(self,
@@ -91,154 +91,6 @@ class STFPMEvaluator:
         plt.close()
         
 
-    # def compute_pro(self, y_true, y_pred, num_thresholds = 100):
-    #     pro_scores = []
-    #     fpr_list = []
-    #     thresholds = np.linspace(0, y_pred.max(), num_thresholds)
-
-    #     total_pos = y_true.sum()
-
-    #     for thresh in thresholds:
-    #         binary_pred = (y_pred >= thresh).astype(np.uint8)
-
-    #         pro_numerator = 0
-    #         false_positive = 0
-
-    #         for gt_mask, pred_mask in zip(y_true, binary_pred):
-    #             gt_labels = label(gt_mask)
-    #             pred_mask_filled = binary_fill_holes(pred_mask)
-
-    #             false_positive += np.sum(pred_mask_filled * (1-gt_mask))
-
-    #             for region_label in np.unique(gt_labels):
-    #                 if region_label == 0:
-    #                     continue
-    #                 region = (gt_labels == region_label).astype(np.uint8)
-
-    #                 intersection = np.sum(region * pred_mask_filled)
-    #                 region_size = np.sum(region)
-
-    #                 if region_size > 0:
-    #                     pro_numerator += intersection / region_size
-
-    #         num_regions = np.sum([len(np.unique(label(m))) - 1 for m in y_true])
-    #         if num_regions == 0:
-    #             pro_score = 0
-    #         else:
-    #             pro_score = pro_numerator / num_regions
-            
-    #         pro_scores.append(pro_score)
-
-    #         fpr = false_positive / (y_true.size - total_pos)
-    #         fpr_list.append(fpr)
-
-    #     fpr_list, pro_scores = zip(*sorted(zip(fpr_list, pro_scores)))
-
-    #     max_fpr = 0.3
-    #     filtered = [(f, p) for f, p in zip(fpr_list, pro_scores) if f <= max_fpr]
-    #     if len(filtered) > 1:
-    #         fpr_arr, pro_arr = zip(*filtered)
-    #         pro_auc = np.trapz(pro_arr, fpr_arr) / max_fpr
-    #     else:
-    #         pro_auc = 0
-        
-    #     return pro_auc
-
-    def cal_pro_auc_pxl(self, scores: np.ndarray, gt_masks: np.ndarray) -> float:
-        def rescale(x):
-            return (x - x.min()) / (x.max() - x.min())
-
-        """
-        Calculate pixel-level pro auc score
-
-        Args:
-            scores (np.array)  : numpy array of predicted masks
-            gt_mask (np.array) : numpy array of ground truth masks
-
-        Returns:
-            per_pixel_roc_auc (float) : pro_auc pixel level score
-        """
-
-        # remove the channel dimension
-        gt = np.squeeze(gt_masks, axis=1)
-
-        gt[gt <= 0.5] = 0
-        gt[gt > 0.5] = 1
-        gt = gt.astype(np.bool_)
-
-        max_step = 200
-        expect_fpr = 0.3
-
-        # set the max and min scores and the delta step
-        max_th = scores.max()
-        min_th = scores.min()
-        delta = (max_th - min_th) / max_step
-
-        pros_mean = []
-        threds = []
-        fprs = []
-
-        binary_score_maps = np.zeros_like(scores, dtype=np.bool_)
-
-        for step in range(max_step):
-            thred = max_th - step * delta
-
-            # segment the scores with different thresholds
-            binary_score_maps[scores <= thred] = 0
-            binary_score_maps[scores > thred] = 1
-
-            pro = []
-            for i in range(len(binary_score_maps)):
-
-                # label the regions in the ground truth
-                label_map = label(gt[i], connectivity=2)
-
-                # calculate some properties for every corresponding region
-                props = regionprops(label_map, binary_score_maps[i])
-
-                # calculate the per-regione overlap
-                for prop in props:
-                    pro.append(prop.intensity_image.sum() / prop.area)
-
-            # append the per-region overlap
-            pros_mean.append(np.array(pro).mean())
-
-            # calculate the false positive rate
-            gt_neg = ~gt
-            fpr = np.logical_and(gt_neg, binary_score_maps).sum() / gt_neg.sum()
-            fprs.append(fpr)
-            threds.append(thred)
-
-        threds = np.array(threds)
-        pros_mean = np.array(pros_mean)
-        fprs = np.array(fprs)
-
-        # select the case when the false positive rates are under the expected fpr
-        idx = fprs <= expect_fpr
-
-        fprs_selected = fprs[idx]
-        fprs_selected = rescale(fprs_selected)
-        pros_mean_selected = rescale(pros_mean[idx])
-        per_pixel_roc_auc = auc(fprs_selected, pros_mean_selected)
-
-        return per_pixel_roc_auc
-        
-    def compute_pixel_f1(self, y_true, y_pred):
-        precision, recall, _ = precision_recall_curve(y_true.flatten(), y_pred.flatten())
-
-        a = 2 * precision * recall
-        b = precision + recall
-
-        f1 = np.divide(a, b, out=np.zeros_like(a), where=b != 0)
-
-        return np.max(f1)
-    
-
-    def min_max_norm(self, x):
-        return (x - x.min()) / (x.max() - x.min())
-
-
-
     def evaluate(self):
 
         self.teacher_model.eval()
@@ -277,18 +129,18 @@ class STFPMEvaluator:
         gt_masks = np.concatenate(gt_masks, axis = 0)
 
         y_pred = loss_map
-        pred_masks = self.min_max_norm(y_pred)
+        pred_masks = min_max_norm(y_pred)
         y_true = gt_masks
         
         pixel_auc = roc_auc_score(y_true.flatten(), pred_masks.flatten())
 
-        f1_score = self.compute_pixel_f1(y_true, y_pred)
+        f1_score = compute_pixel_f1(y_true, y_pred)
 
-        # pixel_pro = self.compute_pro(y_true, y_pred)
+        pixel_pr = compute_pixel_pr(pred_masks, y_true)
 
-        pixel_pro = self.cal_pro_auc_pxl(np.squeeze(pred_masks, axis=1), y_true)
+        pixel_pro = compute_pixel_pro(pred_masks, y_true)
 
-        print(f"Pixel AUC = {pixel_auc:.4f}, Pixel-level F1 score = {f1_score:.4f}, Pixel PRO = {0:.4f}")
+        print(f"Pixel AUC = {pixel_auc:.4f}, Pixel-level F1 score = {f1_score:.4f}, Pixel-level PRO = {pixel_pro:.4f}, Pixel-level PR = {pixel_pr:.4f}")
 
 
     

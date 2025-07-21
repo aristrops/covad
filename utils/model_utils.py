@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from datasets.mvtec_concept_dataset import MvTecConceptDataset
+from datasets.concept_dataset import ConceptDataset
 
 def inference(image, model, use_relu = False, use_sigmoid = False):
     model.eval()
@@ -27,7 +27,7 @@ def generate_concept_logits(model, dataframe, save_path, splits = ["train", "val
     updated_rows = []
 
     for split in splits:
-        dataset = MvTecConceptDataset(dataframe, split = split, load_image = True, apply_transformation=True)
+        dataset = ConceptDataset(dataframe, split = split, load_image = True, apply_transformation=True)
         loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
 
         for i, sample in enumerate(loader):

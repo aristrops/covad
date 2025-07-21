@@ -1,8 +1,9 @@
 import numpy as np
 
 from sklearn.svm import LinearSVC
-from sklearn.metrics import f1_score, matthews_corrcoef
+from sklearn.metrics import f1_score, matthews_corrcoef, precision_recall_curve, auc, average_precision_score
 from sklearn.ensemble import RandomForestClassifier
+from skimage.measure import label, regionprops
 
 #create average meter
 class AverageMeter(object):
@@ -151,3 +152,82 @@ def compute_ois(predicted_concepts, gt_concepts):
     return impurity
 
 
+#pixel-level F1 score
+def compute_pixel_f1(y_true, y_pred):
+    precision, recall, _ = precision_recall_curve(y_true.flatten(), y_pred.flatten())
+
+    a = 2 * precision * recall
+    b = precision + recall
+
+    f1 = np.divide(a, b, out=np.zeros_like(a), where=b != 0)
+
+    return np.max(f1)
+
+
+#normalization
+def min_max_norm(x):
+    return (x - x.min()) / (x.max() - x.min())
+
+#pixel-level PRO
+def compute_pixel_pro(y_pred, y_true):
+
+    y_true[y_true <= 0.5] = 0
+    y_true[y_true > 0.5] = 1
+    y_true = y_true.astype(np.bool_)
+
+    max_step = 200
+    expect_fpr = 0.3
+
+    max_th = y_pred.max()
+    min_th = y_pred.min()
+    delta = (max_th - min_th) / max_step
+
+    pros_mean = []
+    threds = []
+    fprs = []
+
+    binary_score_maps = np.zeros_like(y_pred, dtype=np.bool_)
+
+    for step in range(max_step):
+        thred = max_th - step * delta
+
+        binary_score_maps[y_pred <= thred] = 0
+        binary_score_maps[y_pred > thred] = 1
+
+        pro = []
+        for i in range(len(binary_score_maps)):
+
+            label_map = label(y_true[i], connectivity=2)
+
+            props = regionprops(label_map, binary_score_maps[i])
+
+            for prop in props:
+                pro.append(prop.intensity_image.sum() / prop.area)
+
+        pros_mean.append(np.array(pro).mean())
+
+        gt_neg = ~y_true
+        fpr = np.logical_and(gt_neg, binary_score_maps).sum() / gt_neg.sum()
+        fprs.append(fpr)
+        threds.append(thred)
+
+    threds = np.array(threds)
+    pros_mean = np.array(pros_mean)
+    fprs = np.array(fprs)
+
+    idx = fprs <= expect_fpr
+
+    fprs_selected = fprs[idx]
+    fprs_selected = min_max_norm(fprs_selected)
+    pros_mean_selected = min_max_norm(pros_mean[idx])
+    per_pixel_roc_auc = auc(fprs_selected, pros_mean_selected)
+
+    return per_pixel_roc_auc
+
+
+#pixel-level PR
+def compute_pixel_pr(y_pred, y_true):
+
+    y_true = np.asarray(y_true)
+
+    return average_precision_score(y_true.flatten(), y_pred.flatten())

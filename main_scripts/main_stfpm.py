@@ -3,7 +3,7 @@ import torch
 import random
 import pandas as pd
 
-from datasets.mvtec_concept_dataset import MvTecConceptDataset
+from datasets.concept_dataset import ConceptDataset
 from trainers.trainer_stfpm import STFPMTrainer
 from evaluators.evaluator_stfpm import STFPMEvaluator
 from models.model_backbones import BackboneModelFeatures
@@ -39,10 +39,10 @@ def train_model(category: str,
     }
 
     normal_images = dataframe[(dataframe["split"] == "train") & (dataframe["label_index"] == 0)]
-    train_dataset = MvTecConceptDataset(normal_images, split="train", use_attr=False)
+    train_dataset = ConceptDataset(normal_images, split="train", use_attr=False)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
 
-    val_dataset = MvTecConceptDataset(dataframe, split = "val", use_attr=False, load_mask=True)
+    val_dataset = ConceptDataset(dataframe, split = "val", use_attr=False, load_mask=True)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size = batch_size, shuffle = False)
 
     print(f"Number of training images: {len(train_dataset)}")
@@ -88,7 +88,7 @@ def test_model(category: str,
     student_model = BackboneModelFeatures(pretrained=True, backbone=backbone)
     student_model.load_state_dict(state_dict_student, strict = False)
 
-    test_dataset = MvTecConceptDataset(dataframe, split = "test", use_attr=False, load_mask=True)
+    test_dataset = ConceptDataset(dataframe, split = "test", use_attr=False, load_mask=True)
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
 
     evaluator = STFPMEvaluator(teacher_model, student_model, test_dataloader, device)

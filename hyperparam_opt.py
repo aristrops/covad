@@ -5,7 +5,7 @@ import os
 import optuna
 
 from utils.model_utils import generate_concept_logits
-from datasets.mvtec_concept_dataset import MvTecConceptDataset
+from datasets.concept_dataset import MvTecConceptDataset
 from models.full_models import joint_model, standard_model, concepts_model, main_model
 from utils.trainer_cbm import ResNetTrainer
 from evaluators.evaluator_cbm import Evaluator
