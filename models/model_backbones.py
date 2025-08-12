@@ -178,5 +178,57 @@ class BackboneModelFeatures(nn.Module):
 
 
 
+class FusedBackbone(nn.Module):
+    def __init__(self, 
+                 teacher: BackboneModel,
+                 student: BackboneModel,
+                 num_attr: int,
+                 bottleneck: bool = False,
+                 expand_dim: int = 0,
+                 fusion_mode: str = "concat"):
+        super(FusedBackbone, self).__init__()
 
-  
+        self.teacher = teacher
+        self.student = student
+        self.num_attr = num_attr
+        self.bottleneck = bottleneck
+        self.fusion_mode = fusion_mode
+
+        feature_dim = teacher.fc_layers[0].fc.in_features
+        if fusion_mode == "concat":
+            input_dim = 2 * feature_dim
+        elif fusion_mode == "attention":
+            input_dim = feature_dim
+        
+        self.fc_layers = nn.ModuleList() #list of fc layers for each prediction; main task is always the first fc layer
+
+        if not self.bottleneck:
+            self.fc_layers.append(FC(input_dim, 1, expand_dim))  #add first FC layer for the main task
+        for _ in range(self.num_attr):
+            self.fc_layers.append(FC(input_dim, 1, expand_dim))
+    
+    def forward(self, x):
+        t_features = self.teacher.feature_extractor(x)
+        if hasattr(self.teacher, "pool"):
+            t_features = self.teacher.pool(t_features)
+        t_features = torch.flatten(t_features, 1)
+
+        with torch.no_grad():
+            s_features = self.student.feature_extractor(x)
+            if hasattr(self.student, "pool"):
+                s_features = self.student.pool(s_features)
+            s_features = torch.flatten(s_features, 1)
+        
+        if self.fusion_mode == "concat":
+            delta = t_features - s_features
+            fused_features = torch.cat([t_features, delta], dim = 1)
+        elif self.fusion_mode == "attention":
+            alpha = torch.sigmoid((t_features - s_features))
+            fused_features = alpha * t_features + (1-alpha) * s_features
+
+        predictions = []
+
+        for fc in self.fc_layers:
+            predictions.append(fc(fused_features))
+        
+        return predictions

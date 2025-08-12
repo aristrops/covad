@@ -22,7 +22,7 @@ def inference(image, model, use_relu = False, use_sigmoid = False):
     return list(attr_outputs.data.cpu().numpy())
 
 
-def generate_concept_logits(model, dataframe, save_path, splits = ["train", "val", "test"], use_relu = False, use_sigmoid = False):
+def generate_concept_logits(model, dataframe, save_path, device, splits = ["train", "val", "test"], use_relu = False, use_sigmoid = False):
     
     updated_rows = []
 
@@ -32,6 +32,7 @@ def generate_concept_logits(model, dataframe, save_path, splits = ["train", "val
 
         for i, sample in enumerate(loader):
             image, label, _ = sample
+            image, label = image.to(device), label.to(device)
 
             logits = inference(image, model, use_relu, use_sigmoid)
 

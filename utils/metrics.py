@@ -26,6 +26,8 @@ class AverageMeter(object):
 #compute binary accuracy
 def binary_accuracy(output, target):
     pred = output.cpu() >= 0.5
+    target = target.cpu()
+    
     accuracy = (pred.int().eq(target.int())).sum()
     accuracy = accuracy * 100 / np.prod(np.array(target.size()))
     return accuracy
@@ -144,10 +146,8 @@ def compute_ois(predicted_concepts, gt_concepts):
 
     k = R.shape[1]
 
-    norm_fn = lambda x: np.linalg.norm(x, ord='fro')
-
-    impurity = norm_fn(np.abs(R_gt - R))
-    impurity = impurity / (k / 2)
+    impurity = (np.linalg.norm(R-R_gt, ord = "fro"))
+    impurity = (2 / k) * impurity 
 
     return impurity
 

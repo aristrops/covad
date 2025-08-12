@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from utils.metrics import AverageMeter
 from sklearn.metrics import roc_auc_score
 
+from utils.metrics import compute_pixel_f1, min_max_norm, compute_pixel_pro, compute_pixel_pr
+
 class STFPMTrainer:
     def __init__(self,
                 teacher_model,
@@ -21,8 +23,8 @@ class STFPMTrainer:
                 patience: int = 10, 
                 save_path = None):
         
-        self.teacher_model = teacher_model
-        self.student_model = student_model
+        self.teacher_model = teacher_model.to(device)
+        self.student_model = student_model.to(device)
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.optimizer = optimizer
@@ -109,16 +111,20 @@ class STFPMTrainer:
             loss_meter = AverageMeter()
 
             train_loss = self.run_epoch(self.train_dataloader, loss_meter)
-            val_loss_map, gt_masks = self.run_epoch_eval(self.val_dataloader)
+            val_loss_map, gt_masks,  = self.run_epoch_eval(self.val_dataloader)
             val_loss = val_loss_map.mean()
 
             #flatten all pixels
-            y_true = gt_masks.flatten()
-            y_pred = val_loss_map.flatten()
-            pixel_auc = roc_auc_score(y_true, y_pred)
+            pred_masks = min_max_norm(val_loss_map)
+            y_true = gt_masks
+            y_pred = val_loss_map
+
+            pixel_auc = roc_auc_score(y_true.flatten(), y_pred.flatten())
+            f1_score = compute_pixel_f1(y_true, y_pred)
+            pixel_pro = compute_pixel_pro(pred_masks, y_true)
 
             print(f"Epoch [{epoch + 1}/{self.num_epochs}]: Train Loss = {train_loss.avg:.4f}, "
-                  f"Val Loss = {val_loss:.4f}, Pixel AUC = {pixel_auc:.4f}")
+                  f"Val Loss = {val_loss:.4f}, Pixel AUC = {pixel_auc:.4f}, Pixel F1 Score = {f1_score:.4f}, Pixel PRO = {pixel_pro:.4f}")
 
             if hasattr(self, "scheduler") and self.scheduler is not None:
                 self.scheduler.step(val_loss)

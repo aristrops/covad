@@ -17,7 +17,7 @@ class CBMTrainer:
                  device: torch.device, 
                  lambda_: float, 
                  num_epochs: int, 
-                 patience: int = 5, 
+                 patience: int = 10, 
                  bottleneck: bool = False, 
                  concepts: bool = True, 
                  main_only: bool = False, 
@@ -66,6 +66,9 @@ class CBMTrainer:
         self.best_val_loss = float("inf")
         self.monitored_epochs = 0
         self.best_model_wts = copy.deepcopy(self.model.state_dict())
+
+        self.convergence_epochs = 0
+        self.convergence_patience = 10
     
 
     def run_epoch_main(self, dataloader, loss_meter, accuracy_meter, is_training): #prediction of A -> Y (independent and sequential) or prediction of X -> Y
@@ -221,7 +224,7 @@ class CBMTrainer:
             all_attr_preds = torch.cat(all_attr_preds).numpy()
             all_attr_targets = torch.cat(all_attr_targets).numpy()
 
-            f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "macro")
+            f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "weighted")
         else:
             f1_attr = 0
         
@@ -282,6 +285,20 @@ class CBMTrainer:
                 self.monitored_epochs += 1
                 print(f"No improvement for {self.monitored_epochs} epochs")
             
+            if self.main_only:
+                val_f1 = val_f1_main
+            else:
+                val_f1 = val_f1_attr
+            
+            if val_f1 == 1:
+                self.convergence_epochs += 1
+            else:
+                self.convergence_epochs = 0
+            
+            if self.convergence_epochs >= self.convergence_patience:
+                print(f"Convergence achieved (F1=1.0 for {self.convergence_patience} epochs). Stopping early.")
+                break
+
             if self.monitored_epochs > self.patience:
                 print("Early stopping triggered")
                 break

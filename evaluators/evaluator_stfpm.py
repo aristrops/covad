@@ -17,8 +17,8 @@ class STFPMEvaluator:
                 test_dataloader,
                 device: torch.device):
 
-        self.teacher_model = teacher_model
-        self.student_model = student_model
+        self.teacher_model = teacher_model.to(device)
+        self.student_model = student_model.to(device)
         self.test_dataloader = test_dataloader
         self.device = device
 

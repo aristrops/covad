@@ -1,20 +1,24 @@
 import pandas as pd
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from datasets.concept_dataset import ConceptDataset
 from utils.metrics import compute_pearson_correlation, compute_leakage, compute_dci, compute_ois
 
 def compute_metrics(categories: str,
+                    backbone: str,
                     automated: bool,
                     metrics: list):
     
     for category in categories:
-        print(f"Computing concept quality for category {category}...")
+        print(f"Computing concept quality for {category} category...")
         if automated:
-            dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/mvtec/{category}_dataset.csv")
-            predicted_dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/independent_logits_automated.csv")
+            dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/realiad/{category}_dataset_automated.csv")
+            predicted_dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/sequential_{backbone}_logits_automated.csv")
         else:
-            dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/mvtec/{category}_dataset.csv")
-            predicted_dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/independent_logits.csv")
+            dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/realiad/{category}_dataset.csv")
+            predicted_dataframe = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/sequential_{backbone}_logits.csv")
 
         train_dataset = ConceptDataset(dataframe, split="train", use_attr=True, load_image=False)
         gt_concepts_train = train_dataset.df[train_dataset.attr_cols]
@@ -44,4 +48,4 @@ def compute_metrics(categories: str,
             ois = compute_ois(predicted_concepts_train, gt_concepts_train)
             print(f"OIS for {category} category: {ois:.2f}\n")
 
-compute_metrics(["screw"], automated = True, metrics = ["leakage", "disentanglement", "impurity"])
+compute_metrics(["mint"], "mobilenet_v2", automated = True, metrics = ["leakage", "disentanglement", "impurity"])

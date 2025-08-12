@@ -1,44 +1,49 @@
 import numpy as np
-import torch
+import pandas as pd
 
-def compute_intervention_order(pred_df, n_trials = 1):
+def compute_intervention_order(pred_df, attr_cols):
 
-    attr_preds = pred_df[pred_df.attr_cols]
+    attr_preds = pred_df[attr_cols]
+    num_attr = len(attr_cols)
 
-    all_intervention_order_list = []
+    intervention_order_list = []
+    all_entropies = []
 
-    for _ in range(n_trials):
-        intervention_order_list = []
-        for image_idx in range(len(pred_df)):
-            attr_pred = np.array(attr_preds[image_idx])
+    for image_idx in range(len(pred_df)):
+        attr_pred = np.array(attr_preds.iloc[image_idx])
 
-            entropy = 1 / (np.abs(attr_pred - 0.5) ** 2 + 1e-8)
-            intervention_order = np.argsort(entropy)[::-1]
+        entropy = 1 / (np.abs(attr_pred - 0.5) ** 2 + 1e-8)
+        all_entropies.append(entropy)
 
-            intervention_order_list.append(intervention_order)
-        
-        all_intervention_order_list.append(intervention_order_list)
+        intervention_order = np.argsort(entropy)[::-1]
+        intervention_order_list.append(intervention_order)
     
-    return all_intervention_order_list
+    all_entropies = np.stack(all_entropies, axis = 0)
+    mean_entropy_per_attr = pd.Series(np.mean(all_entropies, axis=0), index=attr_cols)
+    entropy_order = mean_entropy_per_attr.sort_values(ascending=False)
+
+    print("\nAttribute uncertainty ranking:")
+    for rank, (attr, uncertainty) in enumerate(entropy_order.items(), 1):
+        print(f"{rank}. {attr} (mean uncertainty: {uncertainty:.4f})")
+    
+    return intervention_order_list
 
 
-def modify_concepts(intervention_order, gt_df, pred_df, ptl_5, ptl_95, n_replaced, trial):
-
-    attr_cols = pred_df.attr_cols
+def modify_concepts(intervention_order, gt_df, pred_df, attr_cols, ptl_5, ptl_95, n_replaced):
 
     modified_df = pred_df.copy()
 
     for i in range(len(pred_df)):
-        attr_idxs = intervention_order[trial][i][:n_replaced]
+        if n_replaced > 0:
+            attr_idxs = intervention_order[i][:n_replaced]
 
-        for attr_idx in attr_idxs:
-            attr_name = attr_cols[attr_idx]
-            print(f"Modifying concept {attr_name}...")
+            for attr_idx in attr_idxs:
+                attr_name = attr_cols[attr_idx]
 
-            binary_val = gt_df.iloc[i][attr_name]
+                binary_val = gt_df.iloc[i][attr_name]
 
-            new_val = (1 - binary_val) * ptl_5[attr_idx] + binary_val * ptl_95[attr_idx]
-            modified_df.at[i, attr_name] = new_val
+                new_val = (1 - binary_val) * ptl_5[attr_name] + binary_val * ptl_95[attr_name]
+                modified_df.at[i, attr_name] = new_val
     
     return modified_df
 
