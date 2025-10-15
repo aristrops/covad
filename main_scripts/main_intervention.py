@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import torch
 import argparse
 
+from matplotlib.ticker import MaxNLocator
+
 from concept_intervention import compute_intervention_order, modify_concepts
 from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, concepts_model, main_model
@@ -83,6 +85,7 @@ def simulate_concept_intervention(category: str,
 
         #step 3: perform inference over the main task using the new df
         new_test_dataset = ConceptDataset(modified_df, "test", use_attr=True, load_image=False)
+        attr_cols = new_test_dataset.attr_cols
         new_test_dataloader = torch.utils.data.DataLoader(new_test_dataset, batch_size, shuffle = False)
 
         print(f"Performing inference of {model_type} model using the new concepts...")
@@ -91,7 +94,7 @@ def simulate_concept_intervention(category: str,
 
         main_task_model.to(device)
 
-        main_evaluator = CBMEvaluator(main_task_model, num_attr, new_test_dataloader, device, main_only = True)
+        main_evaluator = CBMEvaluator(main_task_model, num_attr, attr_cols, new_test_dataloader, device, main_only = True)
         f1_main = main_evaluator.evaluate()
 
         f1_scores.append(f1_main)
@@ -130,20 +133,23 @@ def main():
             x = list(range(1, len(f1_scores) + 1))
 
             colors = {
-                        "joint": "purple",
+                        "joint": "darkviolet",
                         "sequential": "dodgerblue",
-                        "independent": "seagreen"
+                        "independent": "plum"
                     }
 
             for model_type, f1_list in all_scores.items():
                 plt.plot(x, f1_list, marker='o', label=model_type, color = colors[model_type], markerfacecolor='none', markeredgewidth=1.5)
             
-            plt.axhline(y=args.standard_f1, color='red', linestyle='--', label='standard')
+            plt.axhline(y=args.standard_f1, color='lightcoral', linestyle='--', label='standard')
             
             plt.xlabel("Number of Intervened Concepts")
             plt.ylabel("AD F1 Score")
             plt.legend()
             plt.grid(True)
+
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+
             plt.tight_layout()
             plt.savefig(f"plots/f1_vs_intervention_{category}_{args.backbone}.png")
 

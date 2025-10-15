@@ -4,15 +4,17 @@ import pandas as pd
 def compute_intervention_order(pred_df, attr_cols):
 
     attr_preds = pred_df[attr_cols]
-    num_attr = len(attr_cols)
 
     intervention_order_list = []
     all_entropies = []
 
     for image_idx in range(len(pred_df)):
-        attr_pred = np.array(attr_preds.iloc[image_idx])
+        logits = np.array(attr_preds.iloc[image_idx])
 
-        entropy = 1 / (np.abs(attr_pred - 0.5) ** 2 + 1e-8)
+        p = 1 / (1 + np.exp(-logits)) #convert to probabilities
+        entropy = -(p * np.log(p + 1e-8) + (1 - p) * np.log(1 - p + 1e-8)) #compute Shannon entropy
+
+        #entropy = 1 / (np.abs(attr_pred - 0.5) ** 2 + 1e-8)
         all_entropies.append(entropy)
 
         intervention_order = np.argsort(entropy)[::-1]

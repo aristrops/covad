@@ -5,6 +5,8 @@ import torch
 import pandas as pd
 import gc
 
+from ptflops import get_model_complexity_info
+
 from utils.model_utils import generate_concept_logits
 from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, standard_model, concepts_model, main_model
@@ -199,7 +201,14 @@ def test_model(category: str,
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
                             freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
+        
         model.to(device)
+        macs, params = get_model_complexity_info(model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
+        params = sum(p.numel() for p in model.parameters())
+        print(f"MACs of the joint {backbone} model: {macs}")
+        print(f"Parameters of the joint {backbone} model: {params/1e6:.2f} M")
+        print(f"Size of the joint {backbone} model: {(os.path.getsize(save_path) / (1024**2)):.2f} MB")
+
         evaluator = CBMEvaluator(model, num_attr, attr_cols, test_dataloader, device, concepts=use_concepts)
         evaluator.evaluate()
     
@@ -214,6 +223,13 @@ def test_model(category: str,
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=True, 
                                     expand_dim=0, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test", use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
         concept_model.to(device)
+
+        macs_concept, params_concept = get_model_complexity_info(concept_model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
+        params_concept = sum(p.numel() for p in concept_model.parameters())
+        print(f"MACs of the concept extraction model: {macs_concept}")
+        print(f"Parameters of the concept extraction model: {params_concept/1e6:.2f} M")
+        print(f"Size of the concept extraction model: {(os.path.getsize(save_path_concepts) / (1024**2)):.2f} MB")
+
         concept_evaluator = CBMEvaluator(concept_model, num_attr, attr_cols, test_dataloader, device, concepts = True, bottleneck = True)
         concept_evaluator.evaluate()
 
@@ -222,7 +238,7 @@ def test_model(category: str,
         main_task_model.to(device)
 
         #generate concept logits
-        dataframe_new = generate_concept_logits(concept_model, dataframe, save_path = save_path_new_df, device = device)
+        dataframe_new = generate_concept_logits(concept_model, dataframe, splits=["test"], save_path = save_path_new_df, device = device)
 
         test_dataset_no_img = load_dataset(dataframe_new, "test", load_image=False)
         test_dataloader_no_img = make_dataloader(test_dataset_no_img, batch_size)

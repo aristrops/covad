@@ -114,12 +114,16 @@ class STFPMTrainer:
             val_loss_map, gt_masks,  = self.run_epoch_eval(self.val_dataloader)
             val_loss = val_loss_map.mean()
 
-            #flatten all pixels
             pred_masks = min_max_norm(val_loss_map)
-            y_true = gt_masks
+
+            if isinstance(gt_masks, np.ndarray):
+                y_true = (gt_masks > 0.5).astype(int)
+            else:  
+                y_true = (gt_masks > 0.5).int()
+
             y_pred = val_loss_map
 
-            pixel_auc = roc_auc_score(y_true.flatten(), y_pred.flatten())
+            pixel_auc = roc_auc_score(y_true.flatten(), pred_masks.flatten())
             f1_score = compute_pixel_f1(y_true, y_pred)
             pixel_pro = compute_pixel_pro(pred_masks, y_true)
 

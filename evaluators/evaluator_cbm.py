@@ -1,4 +1,5 @@
 import torch
+import time
 import numpy as np
 
 from utils.metrics import AverageMeter, binary_accuracy
@@ -15,7 +16,7 @@ class CBMEvaluator:
                  concepts: bool = False,
                  main_only: bool = False):
 
-        self.model = model.to(device)
+        self.model = model
         self.num_attr = num_attr
         self.attr_cols = attr_cols
         self.test_dataloader = test_dataloader
@@ -41,6 +42,9 @@ class CBMEvaluator:
             all_attr_probs = all_attr_preds = all_attr_targets = None
             accuracy_meter_attr = None
         
+        total_inference_time = 0.0
+        total_instances = 0
+        
         for sample in self.test_dataloader:
             if self.main_only:
                 inputs, labels = sample
@@ -52,7 +56,17 @@ class CBMEvaluator:
                 inputs, concepts = inputs.to(self.device), concepts.to(self.device)
 
             with torch.no_grad():
+                if self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                start = time.time()
                 predictions = self.model(inputs)
+                if self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                end = time.time()
+            
+            batch_time = end - start
+            total_inference_time += batch_time
+            total_instances += inputs.size(0)
 
             #compute main task accuracy
             if not self.bottleneck:
@@ -130,6 +144,8 @@ class CBMEvaluator:
         else:
             mean_auc = 0
             f1_attr = 0
+        
+        avg_inference_time = total_inference_time / total_instances
 
         if self.bottleneck:
             print(f"\nAccuracy of the concept prediction task: {accuracy_meter_attr.avg.item():.2f}")
@@ -142,6 +158,8 @@ class CBMEvaluator:
                 print(f"\nAccuracy of the concept prediction task: {accuracy_meter_attr.avg.item():.2f}")
                 print(f"AUC of the concept prediction task: {mean_auc:.2f}")
                 print(f"F1 Score of the concept prediction task: {f1_attr:.2f}")
+        
+        #print(f"\nAverage inference time per instance: {avg_inference_time*1000:.4f} ms")
 
         if f1_main:
                 return f1_main

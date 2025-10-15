@@ -1,4 +1,6 @@
 import torch
+import time 
+
 import torch.nn as nn
 import torchvision.models as models
 
@@ -75,7 +77,8 @@ class BackboneModel(nn.Module):
             base_model = models.mobilenet_v2(pretrained=True)
             feature_dim = base_model.last_channel
             self.feature_extractor = base_model.features
-            self.pool = nn.AdaptiveAvgPool2d(1) #add pooling layer since mobilenet ends with conv
+            #self.pool = nn.AdaptiveAvgPool2d(1) #add pooling layer since mobilenet ends with conv
+            self.pool = nn.AvgPool2d(kernel_size=7)
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
 
@@ -104,14 +107,14 @@ class BackboneModel(nn.Module):
         if hasattr(self, "pool"):
             x = self.pool(x)
         x = torch.flatten(x, 1)
-
+        
         predictions = []
 
         for fc in self.fc_layers:
             predictions.append(fc(x))
         
         return predictions
-  
+    
 
 #fc layers for prediction
 class FC(nn.Module):

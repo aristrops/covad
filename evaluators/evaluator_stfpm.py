@@ -130,7 +130,11 @@ class STFPMEvaluator:
 
         y_pred = loss_map
         pred_masks = min_max_norm(y_pred)
-        y_true = gt_masks
+
+        if isinstance(gt_masks, np.ndarray):
+            y_true = (gt_masks > 0.5).astype(int)
+        else:  
+            y_true = (gt_masks > 0.5).int()
         
         pixel_auc = roc_auc_score(y_true.flatten(), pred_masks.flatten())
 
