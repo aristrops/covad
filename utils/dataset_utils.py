@@ -1,9 +1,22 @@
 import json
 import re
+import os
 import torch
+import clip
+import numpy as np
+import pandas as pd
+
+from tqdm import tqdm
 from ollama import Client
+from sklearn.model_selection import train_test_split
+from scipy.stats import chi2_contingency
+
+from datasets.mvtec_dataset import MVTecDataset
+from datasets.realiad_dataset import RealIadDataset
+from moviad.utilities.configurations import TaskType, LabelName
 
 client = Client(host="http://localhost:6000")
+MODEL_NAME = "gemma3:12b"
 
 #parse JSON object
 def extract_json(text):
@@ -15,11 +28,9 @@ def extract_json(text):
         print("Raw response:", text)
         return {}
 
-
 #convert concepts to binary vectors
 def concepts_to_vectors(concept_json, concept_list):
         return [int(concept_json.get(concept, False)) for concept in concept_list]
-
 
 #first VLM query
 def first_vlm_query(category, model_name, sample):
@@ -55,7 +66,6 @@ def first_vlm_query(category, model_name, sample):
     
     return concept_json
 
-
 #second VLM query
 def second_vlm_query(category, model_name, sample, concept_list):
     image_path = sample["image_path"]
@@ -90,3 +100,247 @@ def second_vlm_query(category, model_name, sample, concept_list):
     return vector
 
 
+#create concept list
+def create_concept_list(dataset: str,
+                        dataset_path: str,
+                        category: str):
+
+    concepts = set()
+
+    if dataset == "mvtec":
+        train_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "train")
+        train_dataset.load_dataset()
+
+        test_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "test")
+        test_dataset.load_dataset()
+
+        dataset = pd.concat([train_dataset.samples, test_dataset.samples])
+
+        #extract 5% of the images
+        subset = dataset.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
+    
+    elif dataset == "realiad":
+        dataset = RealIadDataset(root = dataset_path, category=category)
+        dataset.load_dataset()
+        subset = dataset.samples.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
+
+    print(f"Number of images to analyze: {len(subset)}")
+
+    for i in range(len(subset)):
+        sample = subset.iloc[i]
+        concept_json = first_vlm_query(category, MODEL_NAME, sample)
+        concepts.update(c.lower() for c in concept_json)
+
+    concepts = list(concepts)
+    print(f"Original number of concepts for {category}:", len(concepts))
+    
+    output_dir = f"concept_lists/original/{dataset}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(os.path.join(output_dir, f"{category}_concepts.json"), "w") as f:
+        json.dump(concepts, f)
+    
+    return concepts
+
+
+#aggregate similar concepts
+def aggregate_concepts(concepts: list,
+                       category: str):
+
+    message = "You are an industrial expert that is performing the task of visual anomaly detection."\
+            f"Given the following list of visual concepts: {concepts}, related to images of a {category}, please group together those that refer to the same LITERAL meaning, i.e. if they share key words, spelling..."\
+            "Ignore semantic relationships, focus only on literal wording and string similarity."\
+            "Moreover, choose a representative attribute that best summarizes the group."\
+            "I provide two examples: 1. 'Elliptical shape': ['ellipsoidal shape', 'ellipsoid shape', 'elliptical shape']"\
+            "2. 'Smooth texture': ['natural texture, 'smooth texture', 'smooth surface texture', 'smooth appearance', 'organic texture', 'uniform texture', 'consistent texture']"\
+            "DO NOT create groups that are too general, e.g. grouping together all colours or all textures. Representative concepts should still be able to clearly discriminate between normal and anomalous images."\
+            "Return the output as a JSON dictionary where each key is the representative concept, and its value is the list of similar concepts grouped with it."\
+            "In case of concepts that cannot be grouped with any other concept, the dictionary should have both as key and value the concept itself."\
+            "Please, output ONLY the JSON dictionary."
+
+    response = client.chat(model=MODEL_NAME, messages=[{"role": "user", "content": message}])
+
+    try:
+        concept_json = extract_json(response["message"]["content"])
+    except Exception as e:
+        print(f"Error parsing response: {e}")
+        concept_json = []
+    
+    return list(concept_json.keys())
+    
+
+#remove concepts with high cosine similarity between each other
+def compute_concept_similarity(concepts, threshold = 0.9):
+    
+    model, preprocess = clip.load("ViT-B/32", jit = False)
+    model.eval()
+    model.to("cpu")
+
+    with torch.no_grad():
+        text_tokens = clip.tokenize(concepts).to("cpu")
+        text_features = model.encode_text(text_tokens)
+    
+        #normalize features
+        text_features /= text_features.norm(dim = -1, keepdim = True)
+
+    #compute cosine similarity between pairs
+    similarities = (text_features @ text_features.T).cpu().numpy()
+    np.fill_diagonal(similarities, 0.0) #ignore self-similarity
+
+    high_sim_counts = (similarities > threshold).sum(axis = 1)
+
+    #remove concepts with more than two high-similarity matches
+    concepts_to_remove = set(np.array(concepts)[high_sim_counts >= 2])
+
+    #for remaining pairs, remove one of each
+    remaining_idx = [i for i, c in enumerate(concepts) if c not in concepts_to_remove]
+    remaining_concepts = [concepts[i] for i in remaining_idx]
+    remaining_similarities = similarities[np.ix_(remaining_idx, remaining_idx)]
+
+    #track which indices to drop
+    already_removed = set()
+    for i in range(len(remaining_idx)):
+        for j in range(i + 1, len(remaining_idx)):
+            if remaining_similarities[i, j] > threshold:
+                if remaining_concepts[i] not in already_removed and remaining_concepts[j] not in already_removed:
+                    already_removed.add(remaining_concepts[i])
+
+    final_concepts = [c for c in remaining_concepts if c not in already_removed]
+
+    return final_concepts
+
+
+#remove concepts that have a high cosine similarity with the class ("anomalous") or the category
+def compute_class_similarity(concepts, category, classes = ["anomalous", "normal"], threshold = 0.9):
+    
+    model, preprocess = clip.load("ViT-B/32", jit = False)
+
+    references = [category] + classes
+
+    with torch.no_grad():
+        ref_tokens = clip.tokenize(references).to("cpu")
+        ref_features = model.encode_text(ref_tokens)
+        ref_features = ref_features / ref_features.norm(dim = -1, keepdim = True)
+
+        text_tokens = clip.tokenize(concepts).to("cpu")
+        text_features = model.encode_text(text_tokens)
+        text_features /= text_features.norm(dim = -1, keepdim = True)
+    
+    similarities = (text_features @ ref_features.T).cpu().numpy()
+
+    concepts_to_remove = set()
+    for i, concept in enumerate(concepts):
+        for j, ref in enumerate(references):
+            sim = similarities[i, j]
+            if sim > threshold:
+                concepts_to_remove.add(concept)
+                break  
+    
+    final_concepts = [c for c in concepts if c not in concepts_to_remove]
+
+    return final_concepts
+
+
+#create annotated dataset
+def create_final_dataset(dataset_path, dataset, category, final_concepts):
+    image_concepts = []
+
+    if dataset == "mvtec":
+        train_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "train")
+        train_dataset.load_dataset()
+
+        test_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "test")
+        test_dataset.load_dataset()
+
+        samples = pd.concat([train_dataset.samples, test_dataset.samples])
+    
+    elif dataset == "realiad":
+        dataset = RealIadDataset(root = dataset_path, category=category)
+        dataset.load_dataset()
+        samples = dataset.samples
+
+    for i in tqdm(range(len(samples))):
+        sample = samples.iloc[i]
+        concept_vector = second_vlm_query(category, MODEL_NAME, sample, final_concepts)
+        image_concepts.append(concept_vector)
+
+    concepts_df = pd.DataFrame(image_concepts, columns = [f"{c}" for c in final_concepts])
+    final_df = pd.concat([samples.reset_index(drop=True), concepts_df], axis=1)
+
+    return final_df
+
+
+#modify column names
+def modify_columns(df):
+    #define the anomaly type
+    if "label" in df.columns:
+        df = df.rename(columns={"label": "anomaly_type"})
+
+    #drop unnecessary columns
+    if "split" in df.columns and "path" in df.columns:
+        df = df.drop(columns = ["path", "split"])
+
+    return df
+
+
+#split df into train, test and validation
+def split_dataframe(df, train_size = 0.8, test_size = 0.5):   
+    train_df, val_test_df = train_test_split(df, train_size = train_size, stratify=df["anomaly_type"], shuffle = True)
+
+    val_df, test_df = train_test_split(val_test_df, test_size=test_size, shuffle = True)
+
+    train_df["split"] = "train"
+    val_df["split"] = "val"
+    test_df["split"] = "test"
+
+    df = pd.concat([train_df, val_df, test_df]).reset_index(drop=True)
+
+    return df
+
+
+#remove uninformative concepts
+def drop_concepts(df, concepts):
+    df_concepts = [col for col in concepts if col in df.columns]
+    #drop concepts that appear in less than 10 images
+    invalid_concepts = df[df_concepts].sum()[lambda x: x < 10].index
+    print("Concepts that appear in less than 10 images:", invalid_concepts)
+
+    df = df.drop(columns=invalid_concepts)
+
+    remaining_concepts = [col for col in df_concepts if col not in invalid_concepts]
+    #drop concepts that appear in more than 95% of the images
+    always_present_concepts = df[remaining_concepts].sum()[lambda x: x > len(df) * 0.95].index
+    print("Concepts that appear in more than 95% of images:", always_present_concepts)
+
+    df = df.drop(columns=always_present_concepts)
+
+    remaining_concepts = [col for col in concepts if col in df.columns]
+
+    return df, remaining_concepts
+
+
+#remove highly correlated concepts
+def compute_correlation(df, concepts, threshold = 0.95):
+    concepts_to_use = [col for col in concepts if col in df.columns]
+    correlation_matrix = df[concepts_to_use].corr().abs()
+
+    upper_triangle = correlation_matrix.where(np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool))
+
+    to_drop = [column for column in upper_triangle.columns if any(upper_triangle[column] >= threshold)]
+
+    df = df.drop(columns = to_drop)
+
+    remaining_concepts = [col for col in concepts if col in df.columns]
+
+    return df, remaining_concepts
+
+
+#discriminative analysis of concepts
+def chi_square_test(df, concepts):
+    for col in concepts:
+        contingency = pd.crosstab(df[col], df["label_index"])
+        chi2, p, dof, ex = chi2_contingency(contingency)
+        print(f"\n{col}: p-value = {p:.2e}")
+        prob_anomalous = df[df["label_index"] == 1][col].mean()
+        prob_normal = df[df["label_index"] == 0][col].mean()
+        print(f"{col}: P(concept = 1 | anomaly) = {prob_anomalous:.2f}, P(concept = 1 | normal) = {prob_normal:.2f}")

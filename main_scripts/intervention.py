@@ -9,7 +9,7 @@ import argparse
 
 from matplotlib.ticker import MaxNLocator
 
-from concept_intervention import compute_intervention_order, modify_concepts
+from utils.intervention_utils import compute_intervention_order, modify_concepts
 from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, concepts_model, main_model
 from evaluators.evaluator_cbm import CBMEvaluator

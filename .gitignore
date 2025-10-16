@@ -192,4 +192,15 @@ pyrightconfig.json
 .history
 .ionide
 
+# Ignore image files
+*.png
+*.jpg
+*.jpeg
+
+# Ignore JSON files
+*.json
+
+# Ignore a specific Jupyter notebook
+plots.ipynb
+
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
