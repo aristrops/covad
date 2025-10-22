@@ -10,32 +10,32 @@ def create_concept_dataset(dataset: str,
                            category: str):
     
     #step 1: create concept list
-    print(f"Creating concept dataset for {category} category...")
-    print("\n Querying the VLM to extract the concept list...")
+    print(f"\nCreating concept dataset for {category} category...")
+    print("\nQuerying the VLM to extract the concept list...")
     concept_list = dataset_utils.create_concept_list(dataset, dataset_path, category)
 
     #step 2: aggregate and filter concept list
-    print("\n Reducing the dimensionality of the concept set...")
+    print("\nReducing the dimensionality of the concept set...")
     filtered_concept_list = dataset_utils.aggregate_concepts(concept_list, category)
     print("Removing too similar concepts...")
     filtered_concept_list = dataset_utils.compute_concept_similarity(filtered_concept_list)
-    final_concepts = dataset_utils.compute_class_similarity(filtered_concept_list, category, dataset)
-    print(f"Final number of concepts kept for category {category}: {len(final_concepts)}")
+    final_concepts = dataset_utils.compute_class_similarity(filtered_concept_list, category)
+    print(f"Final number of concepts kept for {category} category: {len(final_concepts)}")
 
     with open(f"concept_lists/filtered/{dataset}/{category}_concepts.json", "w") as f:
         json.dump(final_concepts, f)
     
     #step 3: create final dataset
-    print("\n Automatically annotating the dataset...")
+    print("\nAutomatically annotating the dataset...")
     final_df = dataset_utils.create_final_dataset(dataset_path, dataset, category, final_concepts)
 
     #step 4: split the dataset into train, test and validation
-    print("\n Splitting the dataset into train, test and validation...")
+    print("\nSplitting the dataset into train, test and validation...")
     final_df = dataset_utils.modify_columns(final_df)
     final_df = dataset_utils.split_dataframe(final_df)
 
     #step 5: remove uninformative and highly correlated concepts
-    print("\n Removing uninformative and highly correlated concepts...")
+    print("\nRemoving uninformative and highly correlated concepts...")
     final_df, remaining_concepts = dataset_utils.drop_concepts(final_df, final_concepts)
     final_df, remaining_concepts = dataset_utils.compute_correlation(final_df, remaining_concepts)
 
@@ -46,7 +46,7 @@ def create_concept_dataset(dataset: str,
     print(f"Final dataframe saved in {save_path}")
 
     #step 6: statistical analysis of concepts
-    print("\n Computing statistical significance of concepts...")
+    print("\nComputing statistical significance of concepts...")
     dataset_utils.chi_square_test(final_df, remaining_concepts)
 
 
@@ -68,5 +68,6 @@ def main():
     for category in args.categories:
         create_concept_dataset(args.dataset, dataset_path, category)
 
-
+if __name__ == "__main__":
+    main()
     

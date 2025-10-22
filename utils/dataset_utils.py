@@ -114,15 +114,15 @@ def create_concept_list(dataset: str,
         test_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "test")
         test_dataset.load_dataset()
 
-        dataset = pd.concat([train_dataset.samples, test_dataset.samples])
+        full_dataset = pd.concat([train_dataset.samples, test_dataset.samples])
 
         #extract 5% of the images
-        subset = dataset.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
+        subset = full_dataset.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
     
     elif dataset == "realiad":
-        dataset = RealIadDataset(root = dataset_path, category=category)
-        dataset.load_dataset()
-        subset = dataset.samples.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
+        full_dataset = RealIadDataset(root = dataset_path, category=category)
+        full_dataset.load_dataset()
+        subset = full_dataset.samples.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
 
     print(f"Number of images to analyze: {len(subset)}")
 
@@ -132,7 +132,7 @@ def create_concept_list(dataset: str,
         concepts.update(c.lower() for c in concept_json)
 
     concepts = list(concepts)
-    print(f"Original number of concepts for {category}:", len(concepts))
+    print(f"Original number of concepts for {category} category:", len(concepts))
     
     output_dir = f"concept_lists/original/{dataset}"
     os.makedirs(output_dir, exist_ok=True)
@@ -214,6 +214,8 @@ def compute_concept_similarity(concepts, threshold = 0.9):
 def compute_class_similarity(concepts, category, classes = ["anomalous", "normal"], threshold = 0.9):
     
     model, preprocess = clip.load("ViT-B/32", jit = False)
+    model.eval()
+    model.to("cpu")
 
     references = [category] + classes
 

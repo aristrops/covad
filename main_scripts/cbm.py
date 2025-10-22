@@ -1,6 +1,5 @@
 import argparse
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
 import pandas as pd
 import gc
@@ -164,7 +163,9 @@ def test_model(category: str,
                use_concepts: bool = True,
                use_fusion: bool = False,
                fusion_mode: str = "concat",
-               save_concepts: bool = False):
+               save_concepts: bool = False,
+               mode: str = "eval",
+               image_path: str = None):
 
     dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
     model_path_student = f"/mnt/disk1/arianna_stropeni/cbm_models/stfpm_models/{category}_{backbone}.pth" if use_fusion else None
@@ -194,29 +195,40 @@ def test_model(category: str,
     num_attr = len(test_dataset.attr_cols) if use_concepts else None
     attr_cols = test_dataset.attr_cols
 
-    print(f"Number of test images: {len(test_dataset)}")
+    if mode == "eval":
+        print(f"Number of test images: {len(test_dataset)}")
+        print(f"Testing {model_type} model for {category} category...")
 
-    print(f"Testing {model_type} model for {category} category...")
+    elif mode == "inference":
+        print(f"Performing inference on image stored in {image_path}...")
 
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
                             freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
         
         model.to(device)
-        macs, params = get_model_complexity_info(model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
-        params = sum(p.numel() for p in model.parameters())
-        print(f"MACs of the joint {backbone} model: {macs}")
-        print(f"Parameters of the joint {backbone} model: {params/1e6:.2f} M")
-        print(f"Size of the joint {backbone} model: {(os.path.getsize(save_path) / (1024**2)):.2f} MB")
+        # macs, params = get_model_complexity_info(model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
+        # params = sum(p.numel() for p in model.parameters())
+        # print(f"MACs of the joint {backbone} model: {macs}")
+        # print(f"Parameters of the joint {backbone} model: {params/1e6:.2f} M")
+        # print(f"Size of the joint {backbone} model: {(os.path.getsize(save_path) / (1024**2)):.2f} MB")
 
         evaluator = CBMEvaluator(model, num_attr, attr_cols, test_dataloader, device, concepts=use_concepts)
-        evaluator.evaluate()
+
+        if mode == "eval":
+            evaluator.evaluate()
+        elif mode == "inference":
+            evaluator.inference(image_path)
     
     elif model_type == "standard":
         model = standard_model(freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode="test")
         model.to(device)
         evaluator = CBMEvaluator(model, num_attr, attr_cols, test_dataloader, device, concepts=False, main_only=True)
-        evaluator.evaluate()
+
+        if mode == "eval":
+            evaluator.evaluate()
+        elif mode == "inference":
+            evaluator.inference(image_path)
     
     elif model_type == "independent" or model_type == "sequential":
         #first step: attribute prediction
@@ -224,14 +236,18 @@ def test_model(category: str,
                                     expand_dim=0, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test", use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
         concept_model.to(device)
 
-        macs_concept, params_concept = get_model_complexity_info(concept_model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
-        params_concept = sum(p.numel() for p in concept_model.parameters())
-        print(f"MACs of the concept extraction model: {macs_concept}")
-        print(f"Parameters of the concept extraction model: {params_concept/1e6:.2f} M")
-        print(f"Size of the concept extraction model: {(os.path.getsize(save_path_concepts) / (1024**2)):.2f} MB")
+        # macs_concept, params_concept = get_model_complexity_info(concept_model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
+        # params_concept = sum(p.numel() for p in concept_model.parameters())
+        # print(f"MACs of the concept extraction model: {macs_concept}")
+        # print(f"Parameters of the concept extraction model: {params_concept/1e6:.2f} M")
+        # print(f"Size of the concept extraction model: {(os.path.getsize(save_path_concepts) / (1024**2)):.2f} MB")
 
         concept_evaluator = CBMEvaluator(concept_model, num_attr, attr_cols, test_dataloader, device, concepts = True, bottleneck = True)
-        concept_evaluator.evaluate()
+
+        if mode == "eval":
+            concept_evaluator.evaluate()
+        elif mode == "inference":
+            concept_evaluator.inference(image_path)
 
         #second step: main prediction
         main_task_model = main_model(num_attr=num_attr, expand_dim = 8, model_state_dict=state_dict)
@@ -239,19 +255,23 @@ def test_model(category: str,
 
         #generate concept logits
         dataframe_new = generate_concept_logits(concept_model, dataframe, splits=["test"], save_path = save_path_new_df, device = device)
-
-        test_dataset_no_img = load_dataset(dataframe_new, "test", load_image=False)
         test_dataloader_no_img = make_dataloader(test_dataset_no_img, batch_size)
 
         main_evaluator = CBMEvaluator(main_task_model, num_attr, attr_cols, test_dataloader_no_img, device, main_only = True)
-        main_evaluator.evaluate()
+
+        if mode == "eval":
+            test_dataset_no_img = load_dataset(dataframe_new, "test", load_image=False)
+            main_evaluator.evaluate()
+        
+        elif mode == "inference":
+            main_evaluator.inference(image_path)
 
 
 
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--mode", type=str, help="Whether to train or test")
+    parser.add_argument("--mode", type=str, help="Whether to train, test or perform inference on one image")
     parser.add_argument("--dataset", type=str, help="Dataset to use (MvTec or Real-IAD)")
     parser.add_argument("--model_type", type = str, nargs="+", help="Which model to train, e.g. 'independent', 'joint', ...")
     parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
@@ -270,6 +290,7 @@ def main():
     parser.add_argument("--model_path", type=str, default = None, help="If specified, loads the state dict of a chosen model")
     parser.add_argument("--save_concepts", action="store_true", help="Whether to save the predicted concepts dataframe")
     parser.add_argument("--seed", type=int, default=42, help="Execution seed")
+    parser.add_argument("--image_path", default=None, help="Path of the image to perform inference on")
 
     args = parser.parse_args()
 
@@ -281,8 +302,8 @@ def main():
         for model_type in args.model_type:
             if args.mode == "train":
                 train_model(category, args.dataset, model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts)
-            elif args.mode == "test":
-                test_model(category, args.dataset, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts)
+            elif args.mode == "eval" or args.mode == "inference":
+                test_model(category, args.dataset, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
             else:
                 raise ValueError("Invalid mode specified. Use 'train' or 'test'.")
 

@@ -1,6 +1,9 @@
 import torch
 import time
 import numpy as np
+import torchvision.transforms as transforms
+
+from PIL import Image
 
 from utils.metrics import AverageMeter, binary_accuracy
 from sklearn.metrics import f1_score, roc_auc_score
@@ -25,6 +28,7 @@ class CBMEvaluator:
         self.concepts = concepts
         self.main_only = main_only
     
+    #-------Function to evaluate model performance on test set---------
     def evaluate(self):
         self.model.eval()
 
@@ -163,3 +167,56 @@ class CBMEvaluator:
 
         if f1_main:
                 return f1_main
+    
+    #-----Function to perform inference on a single image-------
+    def inference(self, image_path):
+
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)), 
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
+
+        img = Image.open(image_path).convert("RGB")
+        input_tensor = transform(img).unsqueeze(0).to(self.device)
+
+        self.model.eval()
+        with torch.no_grad():
+            predictions = self.model(input_tensor)
+        
+        #parse results
+        if not self.bottleneck:
+            if isinstance(predictions, list):
+                main_logits = predictions[0].squeeze(1)
+                attr_logits = torch.cat(predictions[1:], dim=1) if len(predictions) > 1 else None
+            else:
+                main_logits = predictions.squeeze(1)
+                attr_logits = None
+        else:
+            main_logits = None
+            attr_logits = torch.cat(predictions, dim=1)
+
+        #compute predicted label
+        main_pred = None
+        main_prob = None
+        if main_logits is not None:
+            main_prob = torch.sigmoid(main_logits)
+            main_pred = (main_prob >= 0.5).int()
+
+        #compute predicted concepts
+        attr_probs, attr_preds = [], []
+        if attr_logits is not None:
+            attr_probs = torch.sigmoid(attr_logits).squeeze(0).cpu().numpy()
+            attr_preds = (attr_probs >= 0.5).astype(int)
+
+        if main_pred is not None:
+            print(f"Main Task Prediction: {'Anomalous' if main_pred else 'Normal'}")
+        if len(self.attr_cols) > 0 and len(attr_preds) > 0:
+            print("\nConcept Predictions:")
+            for name, pred in zip(self.attr_cols, attr_preds):
+                print(f"  - {name}: {'Present' if pred else 'Absent'}")
+
+
+
+
