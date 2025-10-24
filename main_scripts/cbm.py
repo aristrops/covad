@@ -3,6 +3,7 @@ import os
 import torch
 import pandas as pd
 import gc
+import wandb
 
 from ptflops import get_model_complexity_info
 
@@ -34,7 +35,9 @@ def train_model(category: str,
                 fusion_mode: str = "concat",
                 freeze_parameters: bool = False, 
                 model_path: str = None,
-                save_concepts: bool = False):
+                save_concepts: bool = False,
+                use_wandb: bool = False,
+                project_name: str = None):
     
     def init_optimizer(params):
         if optimizer == "adam":
@@ -44,7 +47,20 @@ def train_model(category: str,
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode = "min", factor = 0.1, patience = 5)
         return opt, scheduler
     
-        
+    config = {
+        "category": category,
+        "dataset": dataset,
+        "model_type": model_type,
+        "backbone": backbone,
+        "lambda": lambda_,
+        "batch_size": batch_size,
+        "lr": lr,
+        "epochs": epochs,
+        "optimizer": optimizer,
+        "use_fusion": use_fusion,
+        "fusion_mode": fusion_mode
+    }
+    
     dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
     model_path_student = f"/mnt/disk1/arianna_stropeni/cbm_models/stfpm_models/{category}_{backbone}.pth" if use_fusion else None
 
@@ -101,9 +117,15 @@ def train_model(category: str,
         optimizer, scheduler = init_optimizer(model.parameters())
         trainer = CBMTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, scheduler, 
                                 device, lambda_ = lambda_, num_epochs=epochs, concepts=use_concepts, 
-                                weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr, save_path=save_path) 
-        val_main_f1, val_attr_f1 = trainer.train() 
-    
+                                weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr, save_path=save_path, use_wand=use_wandb) 
+        if use_wandb:
+            print(f"Logging results to WandB...")
+            run_name = f"{category}_{dataset}_{model_type}_{backbone}_lambda{lambda_}_lr_{lr}_fusion{use_fusion}"
+            with wandb.init(project=project_name, name = run_name, config = config):
+                val_main_f1, val_attr_f1 = trainer.train()
+        else: 
+            val_main_f1, val_attr_f1 = trainer.train()
+
     elif model_type == "standard":
         if multiclass:
             model = standard_model(freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone, num_classes=num_classes)
@@ -113,8 +135,14 @@ def train_model(category: str,
         optimizer, scheduler = init_optimizer(model.parameters())
         trainer = CBMTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, scheduler,
                                 device, lambda_ = lambda_, num_epochs=epochs, concepts=False, 
-                                main_only=True, multiclass=multiclass, weight_main=imbalance_ratio, save_path=save_path) 
-        val_main_f1 = trainer.train() 
+                                main_only=True, multiclass=multiclass, weight_main=imbalance_ratio, save_path=save_path, use_wandb=use_wandb) 
+        if use_wandb:
+            print(f"Logging results to WandB...")
+            run_name = f"{category}_{dataset}_{model_type}_{backbone}_lr_{lr}"
+            with wandb.init(project=project_name, name = run_name, config = config):
+                val_main_f1 = trainer.train()
+        else: 
+            val_main_f1 = trainer.train()
 
     elif model_type == "independent" or model_type == "sequential":
         # common first step: attribute prediction
@@ -125,8 +153,14 @@ def train_model(category: str,
 
         trainer_concepts = CBMTrainer(concept_model, num_attr, train_dataloader, val_dataloader, concept_optimizer, concept_scheduler,
                                          device, lambda_ = lambda_, num_epochs=epochs, concepts=True, 
-                                         bottleneck=True, weight_attr=imbalance_ratio_attr, save_path=save_path_concepts)
-        val_attr_f1 = trainer_concepts.train()
+                                         bottleneck=True, weight_attr=imbalance_ratio_attr, save_path=save_path_concepts, use_wandb=use_wandb)
+        if use_wandb:
+            print(f"Logging results to WandB...")
+            run_name = f"{category}_{dataset}_{model_type}_concepts_{backbone}_lr_{lr}_fusion{use_fusion}"
+            with wandb.init(project=project_name, name = run_name, config = config):
+                val_attr_f1 = trainer_concepts.train()
+        else: 
+                val_attr_f1 = trainer_concepts.train()
 
         #main model: common
         main_task_model = main_model(num_attr=num_attr, expand_dim = 8)
@@ -146,8 +180,14 @@ def train_model(category: str,
 
         trainer_main =  CBMTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
                                     main_optimizer, main_scheduler, device, lambda_ = lambda_, num_epochs=epochs, 
-                                    concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path)
-        val_main_f1 = trainer_main.train()
+                                    concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path, use_wandb=use_wandb)
+        if use_wandb:
+            print(f"Logging results to WandB...")
+            run_name = f"{category}_{dataset}_{model_type}_main_{backbone}_lr_{lr}_fusion{use_fusion}"
+            with wandb.init(project=project_name, name = run_name, config = config):
+                val_main_f1 = trainer_main.train()
+        else: 
+            val_main_f1, val_attr_f1 = trainer_main.train()
 
 
     torch.cuda.empty_cache()
@@ -267,7 +307,6 @@ def test_model(category: str,
             main_evaluator.inference(image_path)
 
 
-
 def main():
     parser = argparse.ArgumentParser()
 
@@ -291,6 +330,8 @@ def main():
     parser.add_argument("--save_concepts", action="store_true", help="Whether to save the predicted concepts dataframe")
     parser.add_argument("--seed", type=int, default=42, help="Execution seed")
     parser.add_argument("--image_path", default=None, help="Path of the image to perform inference on")
+    parser.add_argument("--use_wandb", action="store_true", help="Whether to log training results on WandB")
+    parser.add_argument("--project_name", type = str, default="cbms_for_ad", help = "Project name for WandB")
 
     args = parser.parse_args()
 
@@ -301,7 +342,7 @@ def main():
     for category in args.categories:
         for model_type in args.model_type:
             if args.mode == "train":
-                train_model(category, args.dataset, model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts)
+                train_model(category, args.dataset, model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_wandb, args.project_name)
             elif args.mode == "eval" or args.mode == "inference":
                 test_model(category, args.dataset, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
             else:
