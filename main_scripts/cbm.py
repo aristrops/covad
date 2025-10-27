@@ -13,14 +13,15 @@ from models.full_models import joint_model, standard_model, concepts_model, main
 from trainers.trainer_cbm import CBMTrainer
 from evaluators.evaluator_cbm import CBMEvaluator
 
-def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False):
-    return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass)
+def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False, anomaly_ratio = 1.0):
+    return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass, anomaly_ratio=anomaly_ratio)
 
 def make_dataloader(dataset, batch_size, shuffle = True):
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 def train_model(category: str, 
                 dataset: str,
+                anomaly_ratio: float,
                 model_type: str, 
                 device: torch.device, 
                 backbone: str,
@@ -78,7 +79,7 @@ def train_model(category: str,
     state_dict = torch.load(model_path) if model_path else None
     student_state_dict = torch.load(model_path_student) if use_fusion else None
 
-    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass)
+    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass, anomaly_ratio=anomaly_ratio)
     val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts, multiclass=multiclass)
     train_dataloader = make_dataloader(train_dataset, batch_size)
     val_dataloader = make_dataloader(val_dataset, batch_size, shuffle = False)
@@ -89,7 +90,7 @@ def train_model(category: str,
     num_attr = len(train_dataset.attr_cols) if use_concepts else None
 
     if model_type == "independent":
-        train_dataset_no_img = load_dataset(dataframe, "train", load_image=False)
+        train_dataset_no_img = load_dataset(dataframe, "train", load_image=False, anomaly_ratio=anomaly_ratio)
         val_dataset_no_img = load_dataset(dataframe, "val", load_image=False)
         train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
         val_dataloader_no_img = make_dataloader(val_dataset_no_img, batch_size)
@@ -98,17 +99,18 @@ def train_model(category: str,
     print(f"Number of validation images: {len(val_dataset)}")
 
     if not multiclass:
-        imbalance_ratio, label_counts = train_dataset.find_class_imbalance("main") 
-        print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
-        print("Label Counts in training set:", label_counts)
+        imbalance_ratio, contamination_ratio = train_dataset.find_class_imbalance("main") 
+        print(f"Keeping {anomaly_ratio*100:.0f}% of anomalous images")
+        print("\nImbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
+        print("Contamination ratio in training set:", contamination_ratio)
     else:
         imbalance_ratio = None
 
     imbalance_ratio_attr = None
     if use_concepts:
-        imbalance_ratio_attr, label_counts_attr = train_dataset.find_class_imbalance("attributes")
+        imbalance_ratio_attr = train_dataset.find_class_imbalance("attributes")
 
-    print(f"Training {model_type} model for {category} category...")
+    print(f"\nTraining {model_type} model for {category} category...")
     #initialize the model
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
@@ -117,7 +119,7 @@ def train_model(category: str,
         optimizer, scheduler = init_optimizer(model.parameters())
         trainer = CBMTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, scheduler, 
                                 device, lambda_ = lambda_, num_epochs=epochs, concepts=use_concepts, 
-                                weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr, save_path=save_path, use_wand=use_wandb) 
+                                weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr, save_path=save_path, use_wandb=use_wandb) 
         if use_wandb:
             print(f"Logging results to WandB...")
             run_name = f"{category}_{dataset}_{model_type}_{backbone}_lambda{lambda_}_lr_{lr}_fusion{use_fusion}"
@@ -172,7 +174,7 @@ def train_model(category: str,
             dataframe_new = generate_concept_logits(concept_model, dataframe, save_path = save_path_new_df, device = device)
 
             #generate concept logits
-            train_dataset_no_img = load_dataset(dataframe_new, "train", load_image=False)
+            train_dataset_no_img = load_dataset(dataframe_new, "train", load_image=False, anomaly_ratio=anomaly_ratio)
             val_dataset_no_img = load_dataset(dataframe_new, "val", load_image=False)
 
             train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
@@ -312,6 +314,7 @@ def main():
 
     parser.add_argument("--mode", type=str, help="Whether to train, test or perform inference on one image")
     parser.add_argument("--dataset", type=str, help="Dataset to use (MvTec or Real-IAD)")
+    parser.add_argument("--anomaly_ratios", type=float, nargs="+", default=[1.0], help="Percentage of anomalous images to keep")
     parser.add_argument("--model_type", type = str, nargs="+", help="Which model to train, e.g. 'independent', 'joint', ...")
     parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
     parser.add_argument("--device", type=str, help="Where to run the script")
@@ -341,12 +344,13 @@ def main():
 
     for category in args.categories:
         for model_type in args.model_type:
-            if args.mode == "train":
-                train_model(category, args.dataset, model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_wandb, args.project_name)
-            elif args.mode == "eval" or args.mode == "inference":
-                test_model(category, args.dataset, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
-            else:
-                raise ValueError("Invalid mode specified. Use 'train' or 'test'.")
+            for anomaly_ratio in args.anomaly_ratios:                
+                if args.mode == "train":
+                    train_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_wandb, args.project_name)
+                elif args.mode == "eval" or args.mode == "inference":
+                    test_model(category, args.dataset, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
+                else:
+                    raise ValueError("Invalid mode specified. Use 'train' or 'test'.")
 
 if __name__ == "__main__":
     main()

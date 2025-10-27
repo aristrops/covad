@@ -11,7 +11,6 @@ from torchvision.transforms.functional import InterpolationMode
 from pathlib import Path
 
 from moviad.datasets.iad_dataset import IadDataset
-from moviad.datasets.exceptions.exceptions import DatasetTooSmallToContaminateException
 from moviad.utilities.configurations import TaskType, Split, LabelName
 
 IMG_EXTENSIONS = (".png", ".PNG")

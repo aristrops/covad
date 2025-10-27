@@ -74,7 +74,7 @@ class BackboneModel(nn.Module):
             feature_dim = base_model.fc.in_features
             self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1]) #remove last FC layer
         elif backbone == "mobilenet_v2":
-            base_model = models.mobilenet_v2(pretrained=True)
+            base_model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
             feature_dim = base_model.last_channel
             self.feature_extractor = base_model.features
             #self.pool = nn.AdaptiveAvgPool2d(1) #add pooling layer since mobilenet ends with conv

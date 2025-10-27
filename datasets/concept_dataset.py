@@ -1,6 +1,7 @@
 import numpy as np
 from PIL import Image
 import torch
+import pandas as pd
 
 from torchvision.transforms import transforms
 from torch.utils.data.dataset import Dataset
@@ -16,7 +17,9 @@ class ConceptDataset(Dataset):
         img_size=(224, 224),
         use_attr: bool = True,
         load_mask: bool = False,
-        n_class_attr: int = 2
+        n_class_attr: int = 2,
+        anomaly_ratio: float = 1.0,
+        random_state: int = 42
     ) -> None:
         super(ConceptDataset)
 
@@ -27,8 +30,13 @@ class ConceptDataset(Dataset):
         self.use_attr = use_attr
         self.load_mask = load_mask
         self.n_class_attr = n_class_attr
+        self.anomaly_ratio = anomaly_ratio
+        self.random_state = random_state
 
         self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
+
+        if split == "train" and anomaly_ratio < 1.0:
+            self.df = self.subsample_anomalies(self.df, anomaly_ratio, random_state)
 
         if self.multiclass:
             self.num_classes = self.df["category_index"].nunique()
@@ -52,6 +60,28 @@ class ConceptDataset(Dataset):
         
         self.transform = transform
         self.transform_augment = transform_augment
+
+    def subsample_anomalies(self, df, anomaly_ratio, random_state):
+        normal_df = df[df["label_index"] == 0]
+        anomalous_df = df[df["label_index"] == 1]
+
+        if anomalous_df.empty:
+            return df
+        
+        subsampled_anomalies = (
+            anomalous_df
+            .groupby("anomaly_type", group_keys = False)
+            .apply(lambda x: x.sample(
+                frac=min(anomaly_ratio, 1.0),
+                random_state = random_state
+            ))
+        )
+
+        new_df = pd.concat([normal_df, subsampled_anomalies], axis = 0).sample(
+            frac=1.0, random_state=random_state
+        ).reset_index(drop = True)
+
+        return new_df
 
     def __len__(self):
         return len(self.df)
@@ -92,17 +122,19 @@ class ConceptDataset(Dataset):
             num_positives = label_counts.get(1, 0)
 
             imbalance_ratio = num_total / num_positives - 1
+            contamination_ratio = label_counts[1]/label_counts[0]
+
         elif type == "attributes":
             imbalance_ratio = []
-            label_counts = []
             for attr in self.attr_cols:
                 num_positives = self.df[attr].sum()
-                label_counts.append(int(num_positives))
 
                 if num_positives > 0:
                     imbalance_ratio.append(num_total / num_positives - 1)
                 else:
                     imbalance_ratio.append(0)
 
-        
-        return imbalance_ratio, label_counts
+        if type == "main":
+            return imbalance_ratio, contamination_ratio
+        elif type == "attributes":
+            return imbalance_ratio

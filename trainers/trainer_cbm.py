@@ -117,12 +117,6 @@ class CBMTrainer:
         all_main_preds = torch.cat(all_main_preds).numpy()
         all_main_targets = torch.cat(all_main_targets).numpy()
 
-        if is_training and not self.multiclass:
-            print("Count of label=0:", np.sum(all_main_targets == 0))
-            print("Count of label=1:", np.sum(all_main_targets == 1))
-            print("Count of predictions=0:", np.sum(all_main_preds == 0))
-            print("Count of predictions=1:", np.sum(all_main_preds == 1))
-
         if self.multiclass:
             f1_main = f1_score(all_main_targets, all_main_preds, average="weighted")
         else:
@@ -212,12 +206,6 @@ class CBMTrainer:
         if not self.bottleneck and all_main_preds is not None:
             all_main_preds = torch.cat(all_main_preds).numpy()
             all_main_targets = torch.cat(all_main_targets).numpy()
-
-            if is_training:
-                print("Count of label=0:", np.sum(all_main_targets == 0))
-                print("Count of label=1:", np.sum(all_main_targets == 1))
-                print("Count of predictions=0:", np.sum(all_main_preds == 0))
-                print("Count of predictions=1:", np.sum(all_main_preds == 1))
 
             f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
         else:
@@ -351,7 +339,7 @@ class CBMTrainer:
                 break
         
         self.model.load_state_dict(self.best_model_wts)
-        print("Best model restored.")
+        print("\nBest model restored.")
 
         if self.save_path is not None:
             os.makedirs(os.path.dirname(self.save_path), exist_ok=True)

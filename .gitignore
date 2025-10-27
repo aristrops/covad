@@ -203,4 +203,7 @@ pyrightconfig.json
 # Ignore a specific Jupyter notebook
 plots.ipynb
 
+# ignore Wandb runs
+wandb/
+
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode

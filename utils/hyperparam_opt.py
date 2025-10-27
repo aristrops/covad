@@ -66,15 +66,15 @@ def train_model(dataframe_path: str,
     print(f"Number of validation images: {len(val_dataset)}")
 
     if not multiclass:
-        imbalance_ratio, label_counts = train_dataset.find_class_imbalance("main") 
+        imbalance_ratio, contamination_ratio = train_dataset.find_class_imbalance("main") 
         print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
-        print("Label Counts in training set:", label_counts)
+        print("Contamination ratio in training set:", contamination_ratio)
     else:
         imbalance_ratio = None
 
     imbalance_ratio_attr = None
     if use_concepts:
-        imbalance_ratio_attr, label_counts_attr = train_dataset.find_class_imbalance("attributes")
+        imbalance_ratio_attr = train_dataset.find_class_imbalance("attributes")
 
     print(f"Training {model_type} model...")
     #initialize the model
