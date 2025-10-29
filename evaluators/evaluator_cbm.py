@@ -165,8 +165,7 @@ class CBMEvaluator:
         
         #print(f"\nAverage inference time per instance: {avg_inference_time*1000:.4f} ms")
 
-        if f1_main:
-                return f1_main
+        return auc_main, mean_auc
     
     #-----Function to perform inference on a single image-------
     def inference(self, image_path):

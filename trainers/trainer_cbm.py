@@ -276,34 +276,34 @@ class CBMTrainer:
             if self.use_wandb:
                 log_dict = {
                     "epoch": epoch,
-                    "train/loss": train_loss,
-                    "val/loss": val_loss,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
                 }
             
                 if self.main_only:
                     log_dict.update({
-                        "train/main_acc": train_acc_main,
-                        "train/main_f1": train_f1_main,
-                        "val/main_acc": val_acc_main,
-                        "val/main_f1": val_f1_main,
+                        "train_main_acc": train_acc_main,
+                        "train_main_f1": train_f1_main,
+                        "val_main_acc": val_acc_main,
+                        "val_main_f1": val_f1_main,
                     })
                 elif self.bottleneck:
                     log_dict.update({
-                        "train/attr_acc": train_acc_attr,
-                        "train/attr_f1": train_f1_attr,
-                        "val/attr_acc": val_acc_attr,
-                        "val/attr_f1": val_f1_attr,
+                        "train_attr_acc": train_acc_attr,
+                        "train_attr_f1": train_f1_attr,
+                        "val_attr_acc": val_acc_attr,
+                        "val_attr_f1": val_f1_attr,
                     })
                 else:
                     log_dict.update({
-                        "train/main_acc": train_acc_main,
-                        "train/attr_acc": train_acc_attr,
-                        "train/main_f1": train_f1_main,
-                        "train/attr_f1": train_f1_attr,
-                        "val/main_acc": val_acc_main,
-                        "val/attr_acc": val_acc_attr,
-                        "val/main_f1": val_f1_main,
-                        "val/attr_f1": val_f1_attr,
+                        "train_main_acc": train_acc_main,
+                        "train_attr_acc": train_acc_attr,
+                        "train_main_f1": train_f1_main,
+                        "train_attr_f1": train_f1_attr,
+                        "val_main_acc": val_acc_main,
+                        "val_attr_acc": val_acc_attr,
+                        "val_main_f1": val_f1_main,
+                        "val_attr_f1": val_f1_attr,
                     })
                 
                 wandb.log(log_dict)

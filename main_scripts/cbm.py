@@ -4,10 +4,12 @@ import torch
 import pandas as pd
 import gc
 import wandb
+import matplotlib.pyplot as plt
 
 from ptflops import get_model_complexity_info
 
 from utils.model_utils import generate_concept_logits
+from utils.plots import plot_anomaly_ratios
 from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, standard_model, concepts_model, main_model
 from trainers.trainer_cbm import CBMTrainer
@@ -70,8 +72,8 @@ def train_model(category: str,
         save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated_fused_{fusion_mode}.pth"
         save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated_fused_{fusion_mode}.csv" if save_concepts else None
     else:
-        save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth"
-        save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated.pth"
+        save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_main_automated.pth"
+        save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_concepts_automated.pth"
         save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None
 
     dataframe = pd.read_csv(dataframe_path)
@@ -95,13 +97,13 @@ def train_model(category: str,
         train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
         val_dataloader_no_img = make_dataloader(val_dataset_no_img, batch_size)
 
-    print(f"Number of training images: {len(train_dataset)}")
+    print(f"\nNumber of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
 
     if not multiclass:
         imbalance_ratio, contamination_ratio = train_dataset.find_class_imbalance("main") 
-        print(f"Keeping {anomaly_ratio*100:.0f}% of anomalous images")
-        print("\nImbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
+        print(f"\nKeeping {anomaly_ratio*100:.0f}% of anomalous images")
+        print("nImbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
         print("Contamination ratio in training set:", contamination_ratio)
     else:
         imbalance_ratio = None
@@ -113,7 +115,7 @@ def train_model(category: str,
     print(f"\nTraining {model_type} model for {category} category...")
     #initialize the model
     if model_type == "joint":
-        model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
+        model = joint_model(num_attr=num_attr, expand_dim=8, use_relu = True, use_sigmoid=False, 
                             freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone, use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
         model.to(device)
         optimizer, scheduler = init_optimizer(model.parameters())
@@ -198,6 +200,7 @@ def train_model(category: str,
 
 def test_model(category: str,
                dataset: str, 
+               anomaly_ratio: float,
                model_type: str, 
                device: torch.device, 
                backbone: str,
@@ -215,7 +218,10 @@ def test_model(category: str,
     if use_fusion:
         save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated_fused_{fusion_mode}.pth"
     else:
-        save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth"
+        if anomaly_ratio == 1.00:
+            save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth"
+        else:
+            save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_main_automated.pth"
 
     dataframe = pd.read_csv(dataframe_path)
 
@@ -227,8 +233,11 @@ def test_model(category: str,
             save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated_fused_{fusion_mode}.pth"
             save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated_fused_{fusion_mode}.csv" if save_concepts else None
         else:
-            save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated.pth"
-            save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None
+            if anomaly_ratio == 1:
+                save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated.pth"
+                save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None
+            else:
+                save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_concepts_automated.pth"
 
         state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
 
@@ -238,15 +247,20 @@ def test_model(category: str,
     attr_cols = test_dataset.attr_cols
 
     if mode == "eval":
-        print(f"Number of test images: {len(test_dataset)}")
+        print(f"\nNumber of test images: {len(test_dataset)}")
         print(f"Testing {model_type} model for {category} category...")
+        print(f"Model was trained keeping {anomaly_ratio*100:.0f}% of anomalous images")
 
     elif mode == "inference":
-        print(f"Performing inference on image stored in {image_path}...")
+        print(f"\nPerforming inference on image stored in {image_path}...")
 
     if model_type == "joint":
-        model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
-                            freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
+        if anomaly_ratio == 1.00:
+            model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
+                                freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
+        else:
+            model = joint_model(num_attr=num_attr, expand_dim=8, use_relu = True, use_sigmoid=False, 
+                                freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
         
         model.to(device)
         # macs, params = get_model_complexity_info(model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
@@ -258,7 +272,7 @@ def test_model(category: str,
         evaluator = CBMEvaluator(model, num_attr, attr_cols, test_dataloader, device, concepts=use_concepts)
 
         if mode == "eval":
-            evaluator.evaluate()
+            auc_main, auc_attr = evaluator.evaluate()
         elif mode == "inference":
             evaluator.inference(image_path)
     
@@ -308,6 +322,10 @@ def test_model(category: str,
         elif mode == "inference":
             main_evaluator.inference(image_path)
 
+    if mode == "eval":
+        return auc_main, auc_attr
+    else:
+        return None, None
 
 def main():
     parser = argparse.ArgumentParser()
@@ -339,18 +357,28 @@ def main():
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
-
     device = torch.device(args.device)
 
+    results_main = {}
+    results_attr = {}
+
     for category in args.categories:
+        auc_scores_main, auc_scores_attr = [], []
         for model_type in args.model_type:
             for anomaly_ratio in args.anomaly_ratios:                
                 if args.mode == "train":
                     train_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_wandb, args.project_name)
                 elif args.mode == "eval" or args.mode == "inference":
-                    test_model(category, args.dataset, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
-                else:
-                    raise ValueError("Invalid mode specified. Use 'train' or 'test'.")
+                    test_auc_main, test_auc_attr = test_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
+                    auc_scores_main.append(test_auc_main), auc_scores_attr.append(test_auc_attr)
+
+        if len(args.anomaly_ratios) > 1:  
+            results_main[category] = auc_scores_main
+            results_attr[category] = auc_scores_attr
+
+    if len(args.anomaly_ratios) > 1 and args.mode == "eval":  
+        plot_anomaly_ratios(args.anomaly_ratios, results_main, results_attr)
+
 
 if __name__ == "__main__":
     main()
