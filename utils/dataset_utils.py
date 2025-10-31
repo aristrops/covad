@@ -103,16 +103,21 @@ def second_vlm_query(category, model_name, sample, concept_list):
 #create concept list
 def create_concept_list(dataset: str,
                         dataset_path: str,
-                        category: str):
+                        category: str,
+                        use_gen_anomalies: bool = False):
 
     concepts = set()
 
     if dataset == "mvtec":
         train_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "train")
-        train_dataset.load_dataset()
+        train_dataset.load_dataset()    
+
+        print("Number of train images:", len(train_dataset))
 
         test_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "test")
-        test_dataset.load_dataset()
+        test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
+
+        print("Number of test images:", len(test_dataset))
 
         full_dataset = pd.concat([train_dataset.samples, test_dataset.samples])
 
@@ -134,7 +139,10 @@ def create_concept_list(dataset: str,
     concepts = list(concepts)
     print(f"Original number of concepts for {category} category:", len(concepts))
     
-    output_dir = f"concept_lists/original/{dataset}"
+    if use_gen_anomalies:
+        output_dir = f"concept_lists/original/{dataset}/gen_anomalies"
+    else:
+        output_dir = f"concept_lists/original/{dataset}"
     os.makedirs(output_dir, exist_ok=True)
 
     with open(os.path.join(output_dir, f"{category}_concepts.json"), "w") as f:
@@ -244,7 +252,11 @@ def compute_class_similarity(concepts, category, classes = ["anomalous", "normal
 
 
 #create annotated dataset
-def create_final_dataset(dataset_path, dataset, category, final_concepts):
+def create_final_dataset(dataset_path: str, 
+                         dataset: str, 
+                         category: str, 
+                         final_concepts: list,
+                         use_gen_anomalies: bool = False):
     image_concepts = []
 
     if dataset == "mvtec":
@@ -252,7 +264,7 @@ def create_final_dataset(dataset_path, dataset, category, final_concepts):
         train_dataset.load_dataset()
 
         test_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "test")
-        test_dataset.load_dataset()
+        test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
 
         samples = pd.concat([train_dataset.samples, test_dataset.samples])
     

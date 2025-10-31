@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 
-def plot_anomaly_ratios(anomaly_ratios, results_main, results_attr):
+def plot_anomaly_ratios(anomaly_ratios, results_main, results_attr, expand_dim):
 
     colors = {
     "hazelnut": "darkviolet",
@@ -18,7 +18,7 @@ def plot_anomaly_ratios(anomaly_ratios, results_main, results_attr):
     plt.legend(title="Category")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(f"plots/auroc_vs_anomaly_ratio_main.png")
+    plt.savefig(f"plots/auroc_vs_anomaly_ratio_main_{expand_dim}MLP.png")
 
     # --- Plot Attr F1 ---
     plt.figure(figsize=(8, 6))
@@ -30,4 +30,4 @@ def plot_anomaly_ratios(anomaly_ratios, results_main, results_attr):
     plt.legend(title="Category")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(f"plots/auroc_vs_anomaly_ratio_attr.png")
+    plt.savefig(f"plots/auroc_vs_anomaly_ratio_attr_{expand_dim}MLP.png")

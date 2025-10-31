@@ -27,6 +27,7 @@ def train_model(category: str,
                 model_type: str, 
                 device: torch.device, 
                 backbone: str,
+                expand_dim: int,
                 lambda_: float,
                 batch_size: int = 16, 
                 optimizer: str = "adam", 
@@ -55,6 +56,7 @@ def train_model(category: str,
         "dataset": dataset,
         "model_type": model_type,
         "backbone": backbone,
+        "MLP neurons": expand_dim,
         "lambda": lambda_,
         "batch_size": batch_size,
         "lr": lr,
@@ -72,8 +74,8 @@ def train_model(category: str,
         save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated_fused_{fusion_mode}.pth"
         save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated_fused_{fusion_mode}.csv" if save_concepts else None
     else:
-        save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_main_automated.pth"
-        save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_concepts_automated.pth"
+        save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_main_automated.pth"
+        save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_concepts_automated.pth"
         save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None
 
     dataframe = pd.read_csv(dataframe_path)
@@ -103,7 +105,7 @@ def train_model(category: str,
     if not multiclass:
         imbalance_ratio, contamination_ratio = train_dataset.find_class_imbalance("main") 
         print(f"\nKeeping {anomaly_ratio*100:.0f}% of anomalous images")
-        print("nImbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
+        print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
         print("Contamination ratio in training set:", contamination_ratio)
     else:
         imbalance_ratio = None
@@ -115,7 +117,7 @@ def train_model(category: str,
     print(f"\nTraining {model_type} model for {category} category...")
     #initialize the model
     if model_type == "joint":
-        model = joint_model(num_attr=num_attr, expand_dim=8, use_relu = True, use_sigmoid=False, 
+        model = joint_model(num_attr=num_attr, expand_dim=expand_dim, use_relu = True, use_sigmoid=False, 
                             freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone, use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
         model.to(device)
         optimizer, scheduler = init_optimizer(model.parameters())
@@ -124,7 +126,7 @@ def train_model(category: str,
                                 weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr, save_path=save_path, use_wandb=use_wandb) 
         if use_wandb:
             print(f"Logging results to WandB...")
-            run_name = f"{category}_{dataset}_{model_type}_{backbone}_lambda{lambda_}_lr_{lr}_fusion{use_fusion}"
+            run_name = f"{category}_{dataset}_{model_type}_{backbone}_MLP{expand_dim}_lambda{lambda_}_lr_{lr}_fusion{use_fusion}"
             with wandb.init(project=project_name, name = run_name, config = config):
                 val_main_f1, val_attr_f1 = trainer.train()
         else: 
@@ -151,7 +153,7 @@ def train_model(category: str,
     elif model_type == "independent" or model_type == "sequential":
         # common first step: attribute prediction
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=freeze_parameters, 
-                                       expand_dim=0, model_state_dict=state_dict, backbone=backbone, use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
+                                       expand_dim=expand_dim, model_state_dict=state_dict, backbone=backbone, use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
         concept_model.to(device)
         concept_optimizer, concept_scheduler = init_optimizer(concept_model.parameters())
 
@@ -204,6 +206,7 @@ def test_model(category: str,
                model_type: str, 
                device: torch.device, 
                backbone: str,
+               expand_dim: int,
                batch_size: int = 16, 
                use_concepts: bool = True,
                use_fusion: bool = False,
@@ -218,10 +221,10 @@ def test_model(category: str,
     if use_fusion:
         save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated_fused_{fusion_mode}.pth"
     else:
-        if anomaly_ratio == 1.00:
-            save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth"
-        else:
-            save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_main_automated.pth"
+        # if anomaly_ratio == 1.00:
+        #     save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth"
+        # else:
+            save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_main_automated.pth"
 
     dataframe = pd.read_csv(dataframe_path)
 
@@ -237,7 +240,7 @@ def test_model(category: str,
                 save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated.pth"
                 save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None
             else:
-                save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_concepts_automated.pth"
+                save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_concepts_automated.pth"
 
         state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
 
@@ -255,11 +258,7 @@ def test_model(category: str,
         print(f"\nPerforming inference on image stored in {image_path}...")
 
     if model_type == "joint":
-        if anomaly_ratio == 1.00:
-            model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
-                                freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
-        else:
-            model = joint_model(num_attr=num_attr, expand_dim=8, use_relu = True, use_sigmoid=False, 
+        model = joint_model(num_attr=num_attr, expand_dim=expand_dim, use_relu = True, use_sigmoid=False, 
                                 freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
         
         model.to(device)
@@ -289,7 +288,7 @@ def test_model(category: str,
     elif model_type == "independent" or model_type == "sequential":
         #first step: attribute prediction
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=True, 
-                                    expand_dim=0, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test", use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
+                                    expand_dim=expand_dim, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test", use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
         concept_model.to(device)
 
         # macs_concept, params_concept = get_model_complexity_info(concept_model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
@@ -337,7 +336,8 @@ def main():
     parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
     parser.add_argument("--device", type=str, help="Where to run the script")
     parser.add_argument("--backbone", type = str, default="resnet18", help = "Which pre-trained network to use for concept extraction")
-    parser.add_argument("--batch_size", type=int, default = 16, help="Batch size to use")
+    parser.add_argument("--expand_dim", type=int, default = 0, help="How many neurons to use in FC layers")
+    parser.add_argument("--batch_size", type=int, default = 8, help="Batch size to use")
     parser.add_argument("--lambda_", type=float, help="How much weight to give to the attributes")
     parser.add_argument("--optimizer", type=str, default = "adam", help="Which optimizer to use")
     parser.add_argument("--lr", type = float, default = 1e-3, help="Learning rate to use")
@@ -367,9 +367,9 @@ def main():
         for model_type in args.model_type:
             for anomaly_ratio in args.anomaly_ratios:                
                 if args.mode == "train":
-                    train_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_wandb, args.project_name)
+                    train_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_wandb, args.project_name)
                 elif args.mode == "eval" or args.mode == "inference":
-                    test_auc_main, test_auc_attr = test_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
+                    test_auc_main, test_auc_attr = test_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path)
                     auc_scores_main.append(test_auc_main), auc_scores_attr.append(test_auc_attr)
 
         if len(args.anomaly_ratios) > 1:  
@@ -377,7 +377,7 @@ def main():
             results_attr[category] = auc_scores_attr
 
     if len(args.anomaly_ratios) > 1 and args.mode == "eval":  
-        plot_anomaly_ratios(args.anomaly_ratios, results_main, results_attr)
+        plot_anomaly_ratios(args.anomaly_ratios, results_main, results_attr, args.expand_dim)
 
 
 if __name__ == "__main__":

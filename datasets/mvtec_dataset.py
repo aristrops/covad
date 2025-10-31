@@ -51,7 +51,6 @@ class MvtecClassEnum(Enum):
     ZIPPER = "zipper"
 
 
-
 IMG_SIZE = (3, 900, 900)
 
 """Create MVTec AD samples by parsing the MVTec AD data file structure.
@@ -132,15 +131,45 @@ class MVTecDataset(IadDataset):
     def contains(self, item) -> bool:
         return self.samples['image_path'].eq(item['image_path']).any()
     
-    def load_dataset(self):
+    def load_dataset(self, use_gen_anomalies: bool = False):
 
         root = Path(self.root_category)
 
-        samples_list = [
-            (str(root),) + f.parts[-3:]
-            for f in root.glob(r"**/*")
-            if f.suffix in IMG_EXTENSIONS
-        ]
+        if use_gen_anomalies and self.split == Split.TEST:
+            #redirect test root to the generated anomaly directory
+            gen_root = root/"test"/"generated_anomalies"
+            if not gen_root.exists:
+                raise FileNotFoundError(f"Generated anomalies directory not found: {gen_root}")
+            print(f"Using generated anomalies from {gen_root}")
+
+        #     samples_list = [
+        #     (str(root),) + f.parts[-3:]
+        #     for f in (root / "test").glob(r"good/**/*")
+        #     if f.suffix in IMG_EXTENSIONS
+        # ] + [
+        #     (str(root),) + f.parts[-4:]  # extra level for generated_anomalies/defect_type/filename
+        #     for f in gen_root.glob(r"**/*")
+        #     if f.suffix in IMG_EXTENSIONS
+        # ]
+        # normal test (good images)
+            samples_list = [
+                (str(root), "test", "good", f.name)
+                for f in (root / "test" / "good").glob("**/*")
+                if f.suffix in IMG_EXTENSIONS
+            ]
+
+            # generated anomalies (each defect type folder)
+            for f in gen_root.glob("**/*"):
+                if f.suffix in IMG_EXTENSIONS:
+                    defect_type = f.parts[-2]  # e.g. "broken_large"
+                    samples_list.append((str(root), "test", defect_type, f.name))
+                
+        else:
+            samples_list = [
+                (str(root),) + f.parts[-3:]
+                for f in root.glob(r"**/*")
+                if f.suffix in IMG_EXTENSIONS and "generated_anomalies" not in f.parts
+            ]
 
         if not samples_list:
             msg = f"Found 0 images in {root}"
@@ -167,34 +196,37 @@ class MVTecDataset(IadDataset):
         samples.label_index = samples.label_index.astype(int)
 
         if self.split == Split.TEST:
+            if use_gen_anomalies:
+                #we don't have ground-truth masks available
+                samples["mask_path"] = ""
+            else:
+                # separate masks from samples
+                mask_samples = samples.loc[samples.split == "ground_truth"].sort_values(
+                    by="image_path", ignore_index=True
+                )
+                samples = samples[samples.split != "ground_truth"].sort_values(
+                    by="image_path", ignore_index=True
+                )
 
-            # separate masks from samples
-            mask_samples = samples.loc[samples.split == "ground_truth"].sort_values(
-                by="image_path", ignore_index=True
-            )
-            samples = samples[samples.split != "ground_truth"].sort_values(
-                by="image_path", ignore_index=True
-            )
+                # assign mask paths to anomalous test images
+                samples["mask_path"] = ""
+                samples.loc[
+                    (samples.split == "test") & (samples.label_index == LabelName.ABNORMAL),
+                    "mask_path",
+                ] = mask_samples.image_path.to_numpy()
 
-            # assign mask paths to anomalous test images
-            samples["mask_path"] = ""
-            samples.loc[
-                (samples.split == "test") & (samples.label_index == LabelName.ABNORMAL),
-                "mask_path",
-            ] = mask_samples.image_path.to_numpy()
-
-            # assert that the right mask files are associated with the right test images
-            abnormal_samples = samples.loc[samples.label_index == LabelName.ABNORMAL]
-            if (
-                    len(abnormal_samples)
-                    and not abnormal_samples.apply(
-                lambda x: Path(x.image_path).stem in Path(x.mask_path).stem, axis=1
-            ).all()
-            ):
-                msg = """Mismatch between anomalous images and ground truth masks. Make sure t
-                he mask files in 'ground_truth' folder follow the same naming convention as the
-                anomalous images in the dataset (e.g. image: '000.png', mask: '000.png' or '000_mask.png')."""
-                raise Exception(msg)
+                # assert that the right mask files are associated with the right test images
+                abnormal_samples = samples.loc[samples.label_index == LabelName.ABNORMAL]
+                if (
+                        len(abnormal_samples)
+                        and not abnormal_samples.apply(
+                    lambda x: Path(x.image_path).stem in Path(x.mask_path).stem, axis=1
+                ).all()
+                ):
+                    msg = """Mismatch between anomalous images and ground truth masks. Make sure t
+                    he mask files in 'ground_truth' folder follow the same naming convention as the
+                    anomalous images in the dataset (e.g. image: '000.png', mask: '000.png' or '000_mask.png')."""
+                    raise Exception(msg)
 
         self.samples = samples[samples.split == self.split].reset_index(drop=True)
         if self.preload_imgs:
