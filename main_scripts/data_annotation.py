@@ -11,36 +11,34 @@ def create_concept_dataset(dataset: str,
                            category: str,
                            use_gen_anomalies: bool = False):
     
-    #step 1: create concept list
-    print(f"\nCreating concept dataset for {category} category...")
-    print("\nQuerying the VLM to extract the concept list...")
-    concept_list = dataset_utils.create_concept_list(dataset, dataset_path, category, use_gen_anomalies=use_gen_anomalies)
+    # #step 1: create concept list
+    # print(f"\nCreating concept dataset for {category} category...")
+    # print("\nQuerying the VLM to extract the concept list...")
+    # concept_list = dataset_utils.create_concept_list(dataset, dataset_path, category, use_gen_anomalies=use_gen_anomalies)
 
-    #step 2: aggregate and filter concept list
-    print("\nReducing the dimensionality of the concept set...")
-    filtered_concept_list = dataset_utils.aggregate_concepts(concept_list, category)
-    print("Removing too similar concepts...")
-    filtered_concept_list = dataset_utils.compute_concept_similarity(filtered_concept_list)
-    final_concepts = dataset_utils.compute_class_similarity(filtered_concept_list, category)
-    print(f"Final number of concepts kept for {category} category: {len(final_concepts)}")
+    # #step 2: aggregate and filter concept list
+    # print("\nReducing the dimensionality of the concept set...")
+    # filtered_concept_list = dataset_utils.aggregate_concepts(concept_list, category)
+    # print("Removing too similar concepts...")
+    # filtered_concept_list = dataset_utils.compute_concept_similarity(filtered_concept_list)
+    # final_concepts = dataset_utils.compute_class_similarity(filtered_concept_list, category)
+    # print(f"Final number of concepts kept for {category} category: {len(final_concepts)}")
 
     if use_gen_anomalies:
         output_dir_filtered = f"concept_lists/filtered/{dataset}/gen_anomalies"
     else:
         output_dir_filtered = f"concept_lists/filtered/{dataset}"
+    os.makedirs(output_dir_filtered, exist_ok=True)
 
-    with open(os.path.join(output_dir_filtered, f"{category}_concepts.json"), "w", "w") as f:
-        json.dump(final_concepts, f)
+    # with open(os.path.join(output_dir_filtered, f"{category}_concepts.json"), "w") as f:
+    #     json.dump(final_concepts, f)
+    
+    with open(os.path.join(output_dir_filtered, f"{category}_concepts.json"), "r") as f:
+        final_concepts = json.load(f)
     
     #step 3: create final dataset
     print("\nAutomatically annotating the dataset...")
-    final_df = dataset_utils.create_final_dataset(dataset_path, dataset, category, final_concepts)
-
-    # final_df = pd.read_csv(f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv")
-    # with open(f"concept_lists/filtered/{dataset}/{category}_concepts.json", "r") as f:
-    #     final_concepts = json.load(f)
-
-    # print(final_df.head())                
+    final_df = dataset_utils.create_final_dataset(dataset_path, dataset, category, final_concepts, use_gen_anomalies=False) #use_gen_anomalies)        
 
     #step 4: split the dataset into train, test and validation
     print("\nSplitting the dataset into train, test and validation...")
@@ -57,7 +55,7 @@ def create_concept_dataset(dataset: str,
     print(final_df.head())
 
     if use_gen_anomalies:
-        save_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated_gen_anomalies.csv"
+        save_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated_original_gen_concepts.csv"
     else:
         save_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)

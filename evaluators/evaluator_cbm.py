@@ -39,12 +39,14 @@ class CBMEvaluator:
             all_main_preds, all_main_targets, all_main_probs = [], [], []
         else:
             all_main_preds = all_main_targets = all_main_probs = None
+            auc_main, f1_main = None, None
 
         if not self.main_only:
             all_attr_probs, all_attr_preds, all_attr_targets = [], [], []
         else:
             all_attr_probs = all_attr_preds = all_attr_targets = None
             accuracy_meter_attr = None
+            mean_auc, f1_attr = None, None
         
         total_inference_time = 0.0
         total_instances = 0
@@ -165,7 +167,7 @@ class CBMEvaluator:
         
         #print(f"\nAverage inference time per instance: {avg_inference_time*1000:.4f} ms")
 
-        return auc_main, mean_auc
+        return auc_main, mean_auc, f1_main, f1_attr
     
     #-----Function to perform inference on a single image-------
     def inference(self, image_path):
