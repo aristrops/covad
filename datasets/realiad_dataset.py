@@ -9,13 +9,10 @@ from torchvision.transforms import InterpolationMode
 from pathlib import Path
 from PIL import Image
 
-from moviad.datasets.iad_dataset import IadDataset
-from moviad.datasets.exceptions.exceptions import DatasetTooSmallToContaminateException
-from moviad.datasets.realiad.realiad_data import RealIadData
-from moviad.datasets.realiad.realiad_dataset_configurations import RealIadAnomalyClass
-from moviad.utilities.configurations import TaskType, Split, LabelName
+from datasets.iad_dataset import IadDataset
+from utils.configurations import LabelName
 
-"""Create MVTec AD samples by parsing the MVTec AD data file structure.
+"""Create RealIAD AD samples by parsing the RealIAD AD data file structure.
 
     The files are expected to follow the structure:
         path/to/dataset/category/OK/Sxxx/image_path.jpg

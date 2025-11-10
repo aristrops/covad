@@ -10,8 +10,8 @@ from typing import Optional
 from torchvision.transforms.functional import InterpolationMode
 from pathlib import Path
 
-from moviad.datasets.iad_dataset import IadDataset
-from moviad.utilities.configurations import TaskType, Split, LabelName
+from datasets.iad_dataset import IadDataset
+from utils.configurations import TaskType, Split, LabelName
 
 IMG_EXTENSIONS = (".png", ".PNG")
 
@@ -67,7 +67,6 @@ class MVTecDataset(IadDataset):
     """MVTec dataset class.
 
     Args:
-        task (TaskType): Task type, ``classification``, ``detection`` or ``segmentation``.
         root (Path | str): Path to the root of the dataset.
             Defaults to ``./datasets/MVTec``.
         category (str): Sub-category of the dataset, e.g. 'bottle'
@@ -81,7 +80,6 @@ class MVTecDataset(IadDataset):
 
     def __init__(
         self,
-        task: TaskType,
         root: str,
         category: str,
         split: Split,
@@ -142,15 +140,6 @@ class MVTecDataset(IadDataset):
                 raise FileNotFoundError(f"Generated anomalies directory not found: {gen_root}")
             print(f"Using generated anomalies from {gen_root}")
 
-        #     samples_list = [
-        #     (str(root),) + f.parts[-3:]
-        #     for f in (root / "test").glob(r"good/**/*")
-        #     if f.suffix in IMG_EXTENSIONS
-        # ] + [
-        #     (str(root),) + f.parts[-4:]  # extra level for generated_anomalies/defect_type/filename
-        #     for f in gen_root.glob(r"**/*")
-        #     if f.suffix in IMG_EXTENSIONS
-        # ]
         # normal test (good images)
             samples_list = [
                 (str(root), "test", "good", f.name)
@@ -162,7 +151,7 @@ class MVTecDataset(IadDataset):
             for f in gen_root.glob("**/*"):
                 if f.suffix in IMG_EXTENSIONS:
                     defect_type = f.parts[-2]  # e.g. "broken_large"
-                    samples_list.append((str(root), "test", defect_type, f.name))
+                    samples_list.append((str(root), "test/generated_anomalies", defect_type, f.name))
                 
         else:
             samples_list = [
@@ -197,7 +186,7 @@ class MVTecDataset(IadDataset):
 
         if self.split == Split.TEST:
             if use_gen_anomalies:
-                #we don't have ground-truth masks available
+                # we don't have ground-truth masks available
                 samples["mask_path"] = ""
             else:
                 # separate masks from samples
@@ -228,7 +217,12 @@ class MVTecDataset(IadDataset):
                     anomalous images in the dataset (e.g. image: '000.png', mask: '000.png' or '000_mask.png')."""
                     raise Exception(msg)
 
-        self.samples = samples[samples.split == self.split].reset_index(drop=True)
+        if self.split == Split.TEST:
+            # include both test and test/generated_anomalies
+            self.samples = samples[samples.split.str.startswith("test")].reset_index(drop=True)
+        else:
+            self.samples = samples[samples.split == self.split].reset_index(drop=True)
+
         if self.preload_imgs:
             self.data = [
                 self.transform_image(

@@ -27,6 +27,7 @@ class STFPMEvaluator:
             t.mul_(s).add_(m)
         return img_tensor
     
+    #-------Function to visualize the predicted heatmap---------
     def visualize(self, image, mask, save_path = None):
 
         self.teacher_model.eval()
@@ -90,7 +91,7 @@ class STFPMEvaluator:
 
         plt.close()
         
-
+    #-------Function to evaluate model performance on test set---------
     def evaluate(self):
 
         self.teacher_model.eval()

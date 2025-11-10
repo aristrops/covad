@@ -39,14 +39,12 @@ class CBMEvaluator:
             all_main_preds, all_main_targets, all_main_probs = [], [], []
         else:
             all_main_preds = all_main_targets = all_main_probs = None
-            auc_main, f1_main = None, None
 
         if not self.main_only:
             all_attr_probs, all_attr_preds, all_attr_targets = [], [], []
         else:
             all_attr_probs = all_attr_preds = all_attr_targets = None
             accuracy_meter_attr = None
-            mean_auc, f1_attr = None, None
         
         total_inference_time = 0.0
         total_instances = 0
@@ -151,15 +149,15 @@ class CBMEvaluator:
             mean_auc = 0
             f1_attr = 0
         
-        avg_inference_time = total_inference_time / total_instances
+        #avg_inference_time = total_inference_time / total_instances
 
         if self.bottleneck:
             print(f"\nAccuracy of the concept prediction task: {accuracy_meter_attr.avg.item():.2f}")
-            print(f"AUC of the concept prediction task: {mean_auc:.2f}")
+            print(f"AUC Score of the concept prediction task: {mean_auc:.2f}")
             print(f"F1 Score of the concept prediction task: {f1_attr:.2f}")
         else:
+            print(f"\nAUC Score of the main task: {auc_main:.2f}")
             print(f"F1 Score of the main task: {f1_main:.2f}")
-            print(f"AUC Score of the main task: {auc_main:.2f}")
             if self.concepts:
                 print(f"\nAccuracy of the concept prediction task: {accuracy_meter_attr.avg.item():.2f}")
                 print(f"AUC of the concept prediction task: {mean_auc:.2f}")
@@ -167,7 +165,14 @@ class CBMEvaluator:
         
         #print(f"\nAverage inference time per instance: {avg_inference_time*1000:.4f} ms")
 
-        return auc_main, mean_auc, f1_main, f1_attr
+        if self.bottleneck:
+            return mean_auc, f1_attr
+        else:
+            if self.main_only:
+                return auc_main, f1_main
+            else:
+                return auc_main, f1_main, mean_auc, f1_attr
+    
     
     #-----Function to perform inference on a single image-------
     def inference(self, image_path):

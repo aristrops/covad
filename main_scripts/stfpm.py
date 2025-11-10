@@ -1,6 +1,5 @@
 import argparse
 import torch
-import random
 import pandas as pd
 
 from datasets.concept_dataset import ConceptDataset

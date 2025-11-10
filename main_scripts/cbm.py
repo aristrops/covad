@@ -5,12 +5,11 @@ import pandas as pd
 import numpy as np
 import gc
 import wandb
-import matplotlib.pyplot as plt
 
 from ptflops import get_model_complexity_info
 
 from utils.model_utils import generate_concept_logits
-from utils.plots import plot_anomaly_ratios, plot_concept_vs_main
+from utils.plots import plot_anomaly_ratios, plot_concept_vs_main, auc_heatmap
 from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, standard_model, concepts_model, main_model
 from trainers.trainer_cbm import CBMTrainer
@@ -132,7 +131,7 @@ def train_model(category: str,
         imbalance_ratio_attr = train_dataset.find_class_imbalance("attributes")
 
     print(f"\nTraining {model_type} model for {category} category...")
-    #initialize the model
+
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=expand_dim, use_relu = True, use_sigmoid=False, 
                             freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone, use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
@@ -191,17 +190,16 @@ def train_model(category: str,
         main_optimizer, main_scheduler = init_optimizer(main_task_model.parameters())
 
         if model_type == "sequential":
-            #possibly save df with concept logits
+            #generate concept logits
             dataframe_new = generate_concept_logits(concept_model, dataframe, save_path = save_path_new_df, device = device)
 
-            #generate concept logits
             train_dataset_no_img = load_dataset(dataframe_new, "train", load_image=False, anomaly_ratio=anomaly_ratio)
             val_dataset_no_img = load_dataset(dataframe_new, "val", load_image=False)
 
             train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
             val_dataloader_no_img = make_dataloader(val_dataset_no_img, batch_size)
 
-        trainer_main =  CBMTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
+        trainer_main = CBMTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
                                     main_optimizer, main_scheduler, device, lambda_ = lambda_, num_epochs=epochs, 
                                     concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path, use_wandb=use_wandb)
         if use_wandb:
@@ -258,6 +256,7 @@ def test_model(category: str,
         save_path = os.path.join(save_dir, "main", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
         save_path_new_df = (f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None)
+        state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
 
     dataframe = pd.read_csv(dataframe_path)
 
@@ -266,28 +265,14 @@ def test_model(category: str,
     state_dict = torch.load(save_path) if save_path else None
     student_state_dict = torch.load(model_path_student) if use_fusion else None
 
-    if model_type in ["independent", "sequential"]:
-        if use_fusion:
-            save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated_fused_{fusion_mode}.pth"
-            save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated_fused_{fusion_mode}.csv" if save_concepts else None
-        else:
-            # if anomaly_ratio == 1:
-            #     save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated.pth"
-            #     save_path_new_df = f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None
-            # else:
-                save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_{use_gen_anomalies}gen_anomalies_concepts_automated.pth"
-
-        state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
-
     test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
     test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
     num_attr = len(test_dataset.attr_cols) if use_concepts else None
-    print("Number of attributes:", num_attr)
     attr_cols = test_dataset.attr_cols
 
     if mode == "eval":
         print(f"\nNumber of test images: {len(test_dataset)}")
-        print(f"Testing {model_type} model for {category} category...")
+        print(f"\nTesting {model_type} model for {category} category...")
         print(f"Model was trained keeping {anomaly_ratio*100:.0f}% of anomalous images")
 
     elif mode == "inference":
@@ -307,7 +292,7 @@ def test_model(category: str,
         evaluator = CBMEvaluator(model, num_attr, attr_cols, test_dataloader, device, concepts=use_concepts)
 
         if mode == "eval":
-            auc_main, auc_attr, f1_main, f1_attr = evaluator.evaluate()
+            auc_main, f1_main, auc_attr, f1_attr = evaluator.evaluate()
         elif mode == "inference":
             evaluator.inference(image_path)
     
@@ -317,11 +302,11 @@ def test_model(category: str,
         evaluator = CBMEvaluator(model, num_attr, attr_cols, test_dataloader, device, concepts=False, main_only=True)
 
         if mode == "eval":
-            evaluator.evaluate()
+            auc_main, f1_main = evaluator.evaluate()
         elif mode == "inference":
             evaluator.inference(image_path)
     
-    elif model_type == "independent" or model_type == "sequential":
+    elif model_type in ["independent", "sequential"]:
         #first step: attribute prediction
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=True, 
                                     expand_dim=expand_dim, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test", use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
@@ -336,7 +321,7 @@ def test_model(category: str,
         concept_evaluator = CBMEvaluator(concept_model, num_attr, attr_cols, test_dataloader, device, concepts = True, bottleneck = True)
 
         if mode == "eval":
-            auc_main, auc_attr, f1_main, f1_attr = concept_evaluator.evaluate()
+            auc_attr, f1_attr = concept_evaluator.evaluate()
         elif mode == "inference":
             concept_evaluator.inference(image_path)
 
@@ -346,13 +331,13 @@ def test_model(category: str,
 
         #generate concept logits
         dataframe_new = generate_concept_logits(concept_model, dataframe, splits=["test"], save_path = save_path_new_df, device = device)
+        test_dataset_no_img = load_dataset(dataframe_new, "test", load_image=False)
         test_dataloader_no_img = make_dataloader(test_dataset_no_img, batch_size)
 
         main_evaluator = CBMEvaluator(main_task_model, num_attr, attr_cols, test_dataloader_no_img, device, main_only = True)
 
         if mode == "eval":
-            test_dataset_no_img = load_dataset(dataframe_new, "test", load_image=False)
-            auc_main, auc_attr, f1_main, f1_attr = main_evaluator.evaluate()
+            auc_main, f1_main = main_evaluator.evaluate()
         
         elif mode == "inference":
             main_evaluator.inference(image_path)
@@ -390,6 +375,7 @@ def main():
     parser.add_argument("--use_gen_anomalies", action="store_true", help="Perform training on dataset with generated anomalies")
     parser.add_argument("--use_wandb", action="store_true", help="Whether to log training results on WandB")
     parser.add_argument("--project_name", type = str, default="cbms_for_ad", help = "Project name for WandB")
+    parser.add_argument("--save_plots", action="store_true", help="Whether to save the final plots")
 
     args = parser.parse_args()
 
@@ -399,26 +385,39 @@ def main():
     results_main = {}
     results_attr = {}
 
-    for category in args.categories:
-        auc_scores_main, auc_scores_attr = [], []
-        f1_scores_main, f1_scores_attr = [], []
-        for model_type in args.model_type:
+    auc_scores_main, auc_scores_attr = [], []
+    f1_scores_main, f1_scores_attr = [], []
+
+    for model_type in args.model_type:
+        for category in args.categories:
+            if len(args.anomaly_ratios) > 1:
+                auc_scores_main, auc_scores_attr = [], []
             for anomaly_ratio in args.anomaly_ratios:                
                 if args.mode == "train":
                     train_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, args.use_wandb, args.project_name)
                 elif args.mode == "eval" or args.mode == "inference":
                     test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path, args.use_gen_anomalies)
                     auc_scores_main.append(test_auc_main), auc_scores_attr.append(test_auc_attr)
+                    f1_scores_main.append(test_f1_main), f1_scores_attr.append(test_f1_attr)
+            
+                if len(args.anomaly_ratios) == 1 and args.mode == "eval": 
+                    mean_auc_main = np.mean(auc_scores_main)
+                    mean_auc_attr = np.mean(auc_scores_attr)
 
+                    print(f"\nAverage AD AUROC across categories: {mean_auc_main:.2f}")
+                    print(f"Average AD F1 Score across categories: {mean_auc_attr:.2f}")
+                    print(f"\nAverage concept AUROC across categories: {np.mean(auc_scores_attr):.2f}")
+                    print(f"Average concept F1 Score across categories: {np.mean(f1_scores_attr):.2f}")
+
+                    if args.save_plots:
+                        #plot_concept_vs_main(auc_scores_main, auc_scores_attr, args.categories, model_type=model_type)
+                        auc_heatmap(auc_scores_main, auc_scores_attr, mean_auc_main, mean_auc_attr, args.categories, model_type)
+
+        
+    if len(args.anomaly_ratios) > 1 and args.mode == "eval":  
         results_main[category] = auc_scores_main
         results_attr[category] = auc_scores_attr
-
-    if len(args.anomaly_ratios) > 1 and args.mode == "eval":  
         plot_anomaly_ratios(args.anomaly_ratios, results_main, results_attr, args.expand_dim)
-    if len(args.anomaly_ratios) == 1 and args.mode == "eval": 
-        print(f"Average AD AUROC across categories: {sum(v[0] for v in results_main.values())  / len(results_main)}")
-        print(f"Average concept AUROC across categories: {sum(v[0] for v in results_attr.values())  / len(results_attr)}")
-        plot_concept_vs_main(results_main, results_attr, model_type=args.model_type)
 
 
 if __name__ == "__main__":

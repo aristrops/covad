@@ -13,7 +13,7 @@ from scipy.stats import chi2_contingency
 
 from datasets.mvtec_dataset import MVTecDataset
 from datasets.realiad_dataset import RealIadDataset
-from moviad.utilities.configurations import TaskType, LabelName
+from utils.configurations import TaskType, LabelName
 
 client = Client(host="http://localhost:6000")
 MODEL_NAME = "gemma3:12b"
@@ -107,15 +107,11 @@ def create_concept_list(dataset: str,
     concepts = set()
 
     if dataset == "mvtec":
-        train_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "train")
+        train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
         train_dataset.load_dataset()    
 
-        print("Number of train images:", len(train_dataset))
-
-        test_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "test")
+        test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
         test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
-
-        print("Number of test images:", len(test_dataset))
 
         full_dataset = pd.concat([train_dataset.samples, test_dataset.samples])
 
@@ -258,10 +254,10 @@ def create_final_dataset(dataset_path: str,
     image_concepts = []
 
     if dataset == "mvtec":
-        train_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "train")
+        train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
         train_dataset.load_dataset()
 
-        test_dataset = MVTecDataset(task = TaskType.SEGMENTATION, root = dataset_path, category = category, split = "test")
+        test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
         test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
 
         samples = pd.concat([train_dataset.samples, test_dataset.samples])
@@ -293,7 +289,6 @@ def modify_columns(df):
         df = df.drop(columns = ["path", "split"])
 
     return df
-
 
 #split df into train, test and validation
 def split_dataframe(df, train_size = 0.8, test_size = 0.5):   
@@ -332,19 +327,44 @@ def drop_concepts(df, concepts):
 
 
 #remove highly correlated concepts
-def compute_correlation(df, concepts, threshold = 0.95):
+# def compute_correlation(df, concepts, threshold = 0.95):
+#     concepts_to_use = [col for col in concepts if col in df.columns]
+#     correlation_matrix = df[concepts_to_use].corr().abs()
+
+#     upper_triangle = correlation_matrix.where(np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool))
+
+#     to_drop = [column for column in upper_triangle.columns if any(upper_triangle[column] >= threshold)]
+
+#     df = df.drop(columns = to_drop)
+
+#     remaining_concepts = [col for col in concepts if col in df.columns]
+
+#     return df, remaining_concepts
+
+def compute_correlation(df, concepts, threshold=0.95):
     concepts_to_use = [col for col in concepts if col in df.columns]
-    correlation_matrix = df[concepts_to_use].corr().abs()
-
-    upper_triangle = correlation_matrix.where(np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool))
-
-    to_drop = [column for column in upper_triangle.columns if any(upper_triangle[column] >= threshold)]
-
-    df = df.drop(columns = to_drop)
-
-    remaining_concepts = [col for col in concepts if col in df.columns]
-
-    return df, remaining_concepts
+    df_concepts = df[concepts_to_use].copy()
+    
+    # Iteratively remove correlated features
+    while True:
+        corr_matrix = df_concepts.corr().abs()
+        upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+        max_corr = upper_triangle.max().max()
+        
+        if max_corr < threshold:
+            break
+        
+        # Drop one of the two most correlated features
+        to_drop = upper_triangle.stack().idxmax()[1]
+        df_concepts = df_concepts.drop(columns=[to_drop])
+    
+    # Get remaining concept names
+    remaining_concepts = list(df_concepts.columns)
+    
+    # Drop the removed concept columns from the full df, but keep all others
+    df_result = df.drop(columns=[col for col in concepts if col not in remaining_concepts])
+    
+    return df_result, remaining_concepts
 
 
 #discriminative analysis of concepts
