@@ -1,5 +1,4 @@
 from abc import abstractmethod
-from enum import Enum
 
 from torch.utils.data.dataset import Dataset
 from moviad.utilities.configurations import TaskType, Split

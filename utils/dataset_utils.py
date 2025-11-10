@@ -12,11 +12,8 @@ from sklearn.model_selection import train_test_split
 from scipy.stats import chi2_contingency
 
 from datasets.mvtec_dataset import MVTecDataset
-from datasets.realiad_dataset import RealIadDataset
-from utils.configurations import TaskType, LabelName
 
 client = Client(host="http://localhost:6000")
-MODEL_NAME = "gemma3:12b"
 
 #parse JSON object
 def extract_json(text):
@@ -44,7 +41,7 @@ def first_vlm_query(category, model_name, sample):
         "Concepts should be referred to visible features only, avoiding speculations or assumptions."\
         "Avoid concepts that are diffused and cannot be grounded on an area of the image, e.g. AVOID concepts such as 'surface discontinuity', 'irregular shape'."\
         "You can output five concepts or less, concepts can have more than one word, if this adds information."\
-        "Please, your ONLY output should be the concepts, nothing else, written as a valid JSON array of strings."
+        "Your ONLY output should be the concepts, nothing else, written as a valid JSON array of strings."
 
     else:
         message = f"You are an expert evaluating an industrial image to detect anomalies. I provide an image of a {category}. The image has been classified as anomalous, so there is a part of it that contains a defect with respect to the standard. The defect is {label}."\
@@ -53,7 +50,7 @@ def first_vlm_query(category, model_name, sample):
         "Concepts should be referred to visible features only, avoiding speculations or assumptions."\
         "Avoid concepts that are diffused and cannot be grounded on an area of the image, e.g. AVOID concepts such as 'surface discontinuity', 'irregular shape'."\
         "You can output five concepts or less, concepts can have more than one word, if this adds information."\
-        "Please, your ONLY output should be the concepts, nothing else, written as a valid JSON array of strings."
+        "Your ONLY output should be the concepts, nothing else, written as a valid JSON array of strings."
 
     
     response = client.chat(model=model_name, messages=[{"role": "user", "content": message, "images": [image_path]}])
@@ -99,44 +96,38 @@ def second_vlm_query(category, model_name, sample, concept_list):
 
 
 #create concept list
-def create_concept_list(dataset: str,
-                        dataset_path: str,
+def create_concept_list(dataset_path: str,
                         category: str,
+                        model_name: str,
                         use_gen_anomalies: bool = False):
 
     concepts = set()
 
-    if dataset == "mvtec":
-        train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
-        train_dataset.load_dataset()    
+    train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
+    train_dataset.load_dataset()    
 
-        test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
-        test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
+    test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
+    test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
 
-        full_dataset = pd.concat([train_dataset.samples, test_dataset.samples])
+    full_dataset = pd.concat([train_dataset.samples, test_dataset.samples])
 
-        #extract 5% of the images
-        subset = full_dataset.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
-    
-    elif dataset == "realiad":
-        full_dataset = RealIadDataset(root = dataset_path, category=category)
-        full_dataset.load_dataset()
-        subset = full_dataset.samples.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
+    #extract 5% of the images
+    subset = full_dataset.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
 
     print(f"Number of images to analyze: {len(subset)}")
 
     for i in range(len(subset)):
         sample = subset.iloc[i]
-        concept_json = first_vlm_query(category, MODEL_NAME, sample)
+        concept_json = first_vlm_query(category, model_name, sample)
         concepts.update(c.lower() for c in concept_json)
 
     concepts = list(concepts)
     print(f"Original number of concepts for {category} category:", len(concepts))
     
     if use_gen_anomalies:
-        output_dir = f"concept_lists/original/{dataset}/gen_anomalies"
+        output_dir = f"concept_lists/original/gen_anomalies"
     else:
-        output_dir = f"concept_lists/original/{dataset}"
+        output_dir = f"concept_lists/original"
     os.makedirs(output_dir, exist_ok=True)
 
     with open(os.path.join(output_dir, f"{category}_concepts.json"), "w") as f:
@@ -147,7 +138,8 @@ def create_concept_list(dataset: str,
 
 #aggregate similar concepts
 def aggregate_concepts(concepts: list,
-                       category: str):
+                       category: str,
+                       model_name: str):
 
     message = "You are an industrial expert that is performing the task of visual anomaly detection."\
             f"Given the following list of visual concepts: {concepts}, related to images of a {category}, please group together those that refer to the same LITERAL meaning, i.e. if they share key words, spelling..."\
@@ -158,9 +150,9 @@ def aggregate_concepts(concepts: list,
             "DO NOT create groups that are too general, e.g. grouping together all colours or all textures. Representative concepts should still be able to clearly discriminate between normal and anomalous images."\
             "Return the output as a JSON dictionary where each key is the representative concept, and its value is the list of similar concepts grouped with it."\
             "In case of concepts that cannot be grouped with any other concept, the dictionary should have both as key and value the concept itself."\
-            "Please, output ONLY the JSON dictionary."
+            "Output ONLY the JSON dictionary."
 
-    response = client.chat(model=MODEL_NAME, messages=[{"role": "user", "content": message}])
+    response = client.chat(model=model_name, messages=[{"role": "user", "content": message}])
 
     try:
         concept_json = extract_json(response["message"]["content"])
@@ -246,30 +238,24 @@ def compute_class_similarity(concepts, category, classes = ["anomalous", "normal
 
 
 #create annotated dataset
-def create_final_dataset(dataset_path: str, 
-                         dataset: str, 
+def create_final_dataset(dataset_path: str,
                          category: str, 
                          final_concepts: list,
+                         model_name: str,
                          use_gen_anomalies: bool = False):
     image_concepts = []
 
-    if dataset == "mvtec":
-        train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
-        train_dataset.load_dataset()
+    train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
+    train_dataset.load_dataset()
 
-        test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
-        test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
+    test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
+    test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
 
-        samples = pd.concat([train_dataset.samples, test_dataset.samples])
+    samples = pd.concat([train_dataset.samples, test_dataset.samples])
     
-    elif dataset == "realiad":
-        dataset = RealIadDataset(root = dataset_path, category=category)
-        dataset.load_dataset()
-        samples = dataset.samples
-
     for i in tqdm(range(len(samples))):
         sample = samples.iloc[i]
-        concept_vector = second_vlm_query(category, MODEL_NAME, sample, final_concepts)
+        concept_vector = second_vlm_query(category, model_name, sample, final_concepts)
         image_concepts.append(concept_vector)
 
     concepts_df = pd.DataFrame(image_concepts, columns = [f"{c}" for c in final_concepts])
@@ -325,27 +311,12 @@ def drop_concepts(df, concepts):
 
     return df, remaining_concepts
 
-
-#remove highly correlated concepts
-# def compute_correlation(df, concepts, threshold = 0.95):
-#     concepts_to_use = [col for col in concepts if col in df.columns]
-#     correlation_matrix = df[concepts_to_use].corr().abs()
-
-#     upper_triangle = correlation_matrix.where(np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool))
-
-#     to_drop = [column for column in upper_triangle.columns if any(upper_triangle[column] >= threshold)]
-
-#     df = df.drop(columns = to_drop)
-
-#     remaining_concepts = [col for col in concepts if col in df.columns]
-
-#     return df, remaining_concepts
-
+#compute correlation between concepts
 def compute_correlation(df, concepts, threshold=0.95):
     concepts_to_use = [col for col in concepts if col in df.columns]
     df_concepts = df[concepts_to_use].copy()
     
-    # Iteratively remove correlated features
+    #iteratively remove correlated features
     while True:
         corr_matrix = df_concepts.corr().abs()
         upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
@@ -354,14 +325,14 @@ def compute_correlation(df, concepts, threshold=0.95):
         if max_corr < threshold:
             break
         
-        # Drop one of the two most correlated features
+        #drop one of the two most correlated features
         to_drop = upper_triangle.stack().idxmax()[1]
         df_concepts = df_concepts.drop(columns=[to_drop])
     
-    # Get remaining concept names
+    #get remaining concept names
     remaining_concepts = list(df_concepts.columns)
     
-    # Drop the removed concept columns from the full df, but keep all others
+    #drop the removed concept columns from the full df, but keep all others
     df_result = df.drop(columns=[col for col in concepts if col not in remaining_concepts])
     
     return df_result, remaining_concepts

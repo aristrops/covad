@@ -1,8 +1,6 @@
-import numpy as np
 import torch
 import copy
 import os
-import wandb
 
 from utils.metrics import AverageMeter, binary_accuracy
 from sklearn.metrics import f1_score
@@ -25,8 +23,7 @@ class CBMTrainer:
                  multiclass: bool = False,
                  weight_main: bool = None, 
                  weight_attr: bool = None,
-                 save_path: str = None,
-                 use_wandb: bool = None):
+                 save_path: str = None):
         
         self.model = model.to(device)
         self.num_attr = num_attr
@@ -43,7 +40,6 @@ class CBMTrainer:
         self.main_only = main_only
         self.multiclass = multiclass
         self.save_path = save_path
-        self.use_wandb = use_wandb
 
         if weight_main is not None:
             pos_weight = torch.tensor(weight_main, dtype=torch.float32).to(device)
@@ -225,7 +221,7 @@ class CBMTrainer:
             return loss_meter, accuracy_meter_main, f1_main
     
 
-    def helper_train(self, epoch, dataloader, is_training):
+    def helper_train(self, dataloader, is_training):
         loss_meter = AverageMeter()
         acc_main = AverageMeter()
         acc_attr = AverageMeter() if self.concepts else None
@@ -241,14 +237,6 @@ class CBMTrainer:
 
 
     def train(self):
-
-        if self.use_wandb:
-            if self.concepts and not self.main_only:
-                wandb.watch(self.model, [self.main_criterion] + self.attr_criterion, log = "all", log_freq = 100)
-            elif self.main_only:
-                wandb.watch(self.model, self.main_criterion, log = "all", log_freq=100)
-            elif self.bottleneck:
-                wandb.watch(self.model, self.attr_criterion, log = "all", log_freq=100)
 
         for epoch in range(self.num_epochs):
 
@@ -272,41 +260,6 @@ class CBMTrainer:
                     f"Val Main F1 = {val_f1_main:.4f}, Val Attr F1 = {val_f1_attr:.4f}")
                 
             print(log)
-
-            if self.use_wandb:
-                log_dict = {
-                    "epoch": epoch,
-                    "train_loss": train_loss,
-                    "val_loss": val_loss,
-                }
-            
-                if self.main_only:
-                    log_dict.update({
-                        "train_main_acc": train_acc_main,
-                        "train_main_f1": train_f1_main,
-                        "val_main_acc": val_acc_main,
-                        "val_main_f1": val_f1_main,
-                    })
-                elif self.bottleneck:
-                    log_dict.update({
-                        "train_attr_acc": train_acc_attr,
-                        "train_attr_f1": train_f1_attr,
-                        "val_attr_acc": val_acc_attr,
-                        "val_attr_f1": val_f1_attr,
-                    })
-                else:
-                    log_dict.update({
-                        "train_main_acc": train_acc_main,
-                        "train_attr_acc": train_acc_attr,
-                        "train_main_f1": train_f1_main,
-                        "train_attr_f1": train_f1_attr,
-                        "val_main_acc": val_acc_main,
-                        "val_attr_acc": val_acc_attr,
-                        "val_main_f1": val_f1_main,
-                        "val_attr_f1": val_f1_attr,
-                    })
-                
-                wandb.log(log_dict)
 
             if hasattr(self, "scheduler") and self.scheduler is not None:
                 self.scheduler.step(val_loss)

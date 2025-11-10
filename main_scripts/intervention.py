@@ -1,6 +1,3 @@
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,36 +13,21 @@ from evaluators.evaluator_cbm import CBMEvaluator
 from utils.model_utils import generate_concept_logits
 
 
-def simulate_concept_intervention(category: str,
-                                  dataset: str, 
+def simulate_concept_intervention(dataframe_path: str,
+                                  model_path: str,
+                                  model_path_concepts: str, 
                                   model_type: str,
                                   device: torch.device,
                                   backbone: str,
-                                  batch_size: int = 8,
-                                  use_fusion: bool = False,
-                                fusion_mode: str = "concat"):
-    
-    dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
-    model_path_student = f"/mnt/disk1/arianna_stropeni/cbm_models/stfpm_models/{category}_{backbone}.pth" if use_fusion else None
-
-    if use_fusion:
-        save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated_fused_{fusion_mode}.pth"
-    else:
-        save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_main_automated.pth" 
+                                  batch_size: int = 8):
 
     dataframe = pd.read_csv(dataframe_path)
     gt_test_df = dataframe[dataframe["split"] == "test"]
 
-    state_dict = torch.load(save_path) if save_path else None
-    student_state_dict = torch.load(model_path_student) if use_fusion else None
+    state_dict = torch.load(model_path)
 
     if model_type in ["independent", "sequential"]:
-        if use_fusion:
-            save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated_fused_{fusion_mode}.pth"
-        else:
-            save_path_concepts = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/{model_type}_{backbone}_concepts_automated.pth"
-            
-        state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
+        state_dict_concepts = torch.load(model_path_concepts) 
 
     test_dataset = ConceptDataset(dataframe, "test", use_attr=True)
     num_attr = len(test_dataset.attr_cols) 
@@ -58,11 +40,10 @@ def simulate_concept_intervention(category: str,
 
     if model_type in ["sequential", "independent"]:
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=True, 
-                                    expand_dim=0, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test", 
-                                    use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
+                                    expand_dim=0, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test")
+        
     elif model_type == "joint":
-        concept_model, main_task_model = joint_model(num_attr=num_attr, freeze_parameters=True, expand_dim=0, model_state_dict=state_dict, mode = "test", concept_intervention=True,
-                                                      use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
+        concept_model, main_task_model = joint_model(num_attr=num_attr, freeze_parameters=True, expand_dim=0, model_state_dict=state_dict, mode = "test", concept_intervention=True)
         
     concept_model.to(device)
 
@@ -105,14 +86,15 @@ def simulate_concept_intervention(category: str,
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--dataset", type=str, help="Dataset to use (MvTec or Real-IAD)")
+    parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
+    parser.add_argument("--model_path", type=str, help="Path to trained model")
+    parser.add_argument("--model_path_concepts", type=str, help="Path to trained concept model")
     parser.add_argument("--model_types", type = str, nargs = "+", help="Which model to train, e.g. 'independent', 'joint', ...")
-    parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
     parser.add_argument("--device", type=str, help="Where to run the script")
     parser.add_argument("--backbone", type = str, default="resnet18", help = "Which pre-trained network to use for concept extraction")
     parser.add_argument("--batch_size", type=int, default = 16, help="Batch size to use")
-    parser.add_argument("--n_replaced", type=int, default = 1, help="How many concepts to intervene on")
     parser.add_argument("--save_plot", action = "store_true", help="Whether to save the plot")
+    parser.add_argument("--save_path", type=str, help="Where to save the plot")
     parser.add_argument("--standard_f1", type=float, default = None, help="F1 Score achieved by the standard model")
     parser.add_argument("--seed", type=int, default=42, help="Execution seed")
 
@@ -124,34 +106,33 @@ def main():
 
     all_scores = {model_type: [] for model_type in args.model_types}
 
-    for category in args.categories:
-        for model_type in args.model_types:
-            f1_scores = simulate_concept_intervention(category, args.dataset, model_type, device, args.backbone, args.batch_size)
-            all_scores[model_type] = f1_scores
+    for model_type in args.model_types:
+        f1_scores = simulate_concept_intervention(args.dataframe_path, args.model_path, args.model_path_concepts, model_type, device, args.backbone, args.batch_size)
+        all_scores[model_type] = f1_scores
+    
+    if args.save_plot:
+        x = list(range(1, len(f1_scores) + 1))
+
+        colors = {
+                    "joint": "darkviolet",
+                    "sequential": "dodgerblue",
+                    "independent": "plum"
+                }
+
+        for model_type, f1_list in all_scores.items():
+            plt.plot(x, f1_list, marker='o', label=model_type, color = colors[model_type], markerfacecolor='none', markeredgewidth=1.5)
         
-        if args.save_plot:
-            x = list(range(1, len(f1_scores) + 1))
+        plt.axhline(y=args.standard_f1, color='lightcoral', linestyle='--', label='standard')
+        
+        plt.xlabel("Number of Intervened Concepts")
+        plt.ylabel("AD F1 Score")
+        plt.legend()
+        plt.grid(True)
 
-            colors = {
-                        "joint": "darkviolet",
-                        "sequential": "dodgerblue",
-                        "independent": "plum"
-                    }
+        plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
 
-            for model_type, f1_list in all_scores.items():
-                plt.plot(x, f1_list, marker='o', label=model_type, color = colors[model_type], markerfacecolor='none', markeredgewidth=1.5)
-            
-            plt.axhline(y=args.standard_f1, color='lightcoral', linestyle='--', label='standard')
-            
-            plt.xlabel("Number of Intervened Concepts")
-            plt.ylabel("AD F1 Score")
-            plt.legend()
-            plt.grid(True)
-
-            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
-
-            plt.tight_layout()
-            plt.savefig(f"plots/f1_vs_intervention_{category}_{args.backbone}.png")
+        plt.tight_layout()
+        plt.savefig(args.save_path)
 
 if __name__ == "__main__":
     main()

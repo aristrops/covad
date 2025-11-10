@@ -1,57 +1,16 @@
-import math
-import numpy as np
 import pandas as pd
 from PIL import Image
 import torch
 from torchvision.transforms import transforms
 
-from enum import Enum
 from typing import Optional
 from torchvision.transforms.functional import InterpolationMode
 from pathlib import Path
 
 from datasets.iad_dataset import IadDataset
-from utils.configurations import TaskType, Split, LabelName
+from utils.configurations import Split, LabelName
 
 IMG_EXTENSIONS = (".png", ".PNG")
-
-CATEGORIES = (
-    "bottle",
-    "cable",
-    "capsule",
-    "carpet",
-    "grid",
-    "hazelnut",
-    "leather",
-    "metal_nut",
-    "pill",
-    "screw",
-    "tile",
-    "toothbrush",
-    "transistor",
-    "wood",
-    "zipper",
-)
-
-class MvtecClassEnum(Enum):
-    BOTTLE = "bottle"
-    CABLE = "cable"
-    CAPSULE = "capsule"
-    CARPET = "carpet"
-    GRID = "grid"
-    HAZELNUT = "hazelnut"
-    LEATHER = "leather"
-    METAL_NUT = "metal_nut"
-    PILL = "pill"
-    SCREW = "screw"
-    TILE = "tile"
-    TOOTHBRUSH = "toothbrush"
-    TRANSISTOR = "transistor"
-    WOOD = "wood"
-    ZIPPER = "zipper"
-
-
-IMG_SIZE = (3, 900, 900)
 
 """Create MVTec AD samples by parsing the MVTec AD data file structure.
 
@@ -61,7 +20,6 @@ IMG_SIZE = (3, 900, 900)
 
     This function creates a dataframe to store the parsed information based on the following format:
 """
-
 
 class MVTecDataset(IadDataset):
     """MVTec dataset class.

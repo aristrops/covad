@@ -41,8 +41,6 @@ def train_model(dataframe_path: str,
         return opt, scheduler
         
     dataframe = pd.read_csv(dataframe_path)
-    # concepts = [col for col in dataframe.columns if col not in ["image_path", "label_index", "mask_path", "split", "anomaly_type"]]
-    # num_attr = len(concepts) if use_concepts else None
 
     state_dict = torch.load(model_path) if model_path else None
 
@@ -77,6 +75,7 @@ def train_model(dataframe_path: str,
         imbalance_ratio_attr = train_dataset.find_class_imbalance("attributes")
 
     print(f"Training {model_type} model...")
+
     #initialize the model
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=0, use_relu = True, use_sigmoid=False, 
@@ -146,7 +145,7 @@ def train_model(dataframe_path: str,
     return val_main_f1, val_attr_f1
 
 
-def objective(trial):
+def objective(trial, dataframe_path):
     model_type = "joint"
 
     lr = trial.suggest_loguniform("lr", 1e-5, 1e-2)
@@ -157,7 +156,7 @@ def objective(trial):
     else:
         lambda_ = 1
 
-    val_main_f1, val_attr_f1 = train_model(dataframe_path = "/mnt/disk1/arianna_stropeni/cbm_data/mvtec/hazelnut_dataset_automated.csv",
+    val_main_f1, val_attr_f1 = train_model(dataframe_path = dataframe_path,
                                            model_type=model_type,
                                            device = "cpu",
                                            backbone = "resnet18",
@@ -171,9 +170,10 @@ def objective(trial):
     
     return val_main_f1, val_attr_f1
 
+data_path = "path/to/df.csv"
 
 study = optuna.create_study(directions=["maximize", "maximize"])
-study.optimize(objective, n_trials=20)
+study.optimize(lambda trial: objective(trial, data_path), n_trials=20)
 pareto_front = study.best_trials
 for trial in pareto_front:
     print(f"Main F1: {trial.values[0]:.3f}, Concept F1: {trial.values[1]:.3f}")

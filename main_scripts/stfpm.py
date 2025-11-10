@@ -8,13 +8,15 @@ from evaluators.evaluator_stfpm import STFPMEvaluator
 from models.model_backbones import BackboneModelFeatures
 
 def train_model(category: str,
-                dataset: str,
+                dataframe_path: str,
+                teacher_path: str,
                 device: torch.device,
                 backbone: str,
                 batch_size: int = 8,
                 optimizer: str = "adam",
                 lr: float = 1e-3,
-                epochs: int = 100):
+                epochs: int = 100,
+                student_path: str = None):
     
     def init_optimizer(params):
         if optimizer == "adam":
@@ -24,13 +26,9 @@ def train_model(category: str,
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode = "min", factor = 0.1, patience = 5)
         return opt, scheduler
 
-    dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
-    save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/stfpm_models/{category}_{backbone}.pth"
-    model_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/joint_{backbone}_main_automated.pth"
-
     dataframe = pd.read_csv(dataframe_path)
 
-    state_dict = torch.load(model_path) if model_path else None
+    state_dict = torch.load(teacher_path)
     state_dict = {
         k.replace("first_model.", ""): v
         for k, v in state_dict.items()
@@ -56,30 +54,29 @@ def train_model(category: str,
 
     optimizer, scheduler = init_optimizer(student_model.parameters())
 
-    trainer = STFPMTrainer(teacher_model, student_model, train_dataloader, val_dataloader, optimizer, scheduler, device, epochs, save_path = save_path)
+    trainer = STFPMTrainer(teacher_model, student_model, train_dataloader, val_dataloader, optimizer, scheduler, device, epochs, save_path = student_path)
     trainer.train()
 
 def test_model(category: str,
-                dataset: str,
+               dataframe_path: str,
+                teacher_path: str,
+                student_path: str,
                 device: torch.device,
                 backbone: str,
                 batch_size: int = 8,
-                evaluate_one: bool = False):
-
-    dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
-    save_path = f"/mnt/disk1/arianna_stropeni/cbm_models/stfpm_models/{category}_{backbone}.pth"
-    model_path = f"/mnt/disk1/arianna_stropeni/cbm_models/{category}_models/joint_{backbone}_main_automated.pth"
+                evaluate_one: bool = False,
+                save_path_image: str = None):
 
     dataframe = pd.read_csv(dataframe_path)
 
-    state_dict = torch.load(model_path) if model_path else None
+    state_dict = torch.load(teacher_path) 
     state_dict = {
         k.replace("first_model.", ""): v
         for k, v in state_dict.items()
         if k.startswith("first_model.")
     }
 
-    state_dict_student = torch.load(save_path)
+    state_dict_student = torch.load(student_path)
     
     teacher_model = BackboneModelFeatures(pretrained=True, backbone=backbone)
     teacher_model.load_state_dict(state_dict, strict=False)
@@ -97,7 +94,6 @@ def test_model(category: str,
         for idx in anomalous_indices:
             print(f"Creating heatmap for image {idx}...")
             image, label, mask = test_dataset[idx]
-            save_path_image = f"stfpm_outputs/{category}/{category}_{idx}.png"
             evaluator.visualize(image, mask, save_path=save_path_image)
     
     else:
@@ -111,14 +107,17 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--mode", type=str, help="Whether to train or test")
-    parser.add_argument("--dataset", type=str, help="Dataset to use (MvTec or Real-IAD)")
+    parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
     parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
+    parser.add_argument("--teacher_path", type=str, help="Path to trained model to use as teacher")
+    parser.add_argument("--student_path", type=str, help="Path where to save trained student model")
     parser.add_argument("--device", type=str, help="Where to run the script")
     parser.add_argument("--backbone", type = str, default="resnet18", help = "Which pre-trained network to use for concept extraction")
     parser.add_argument("--batch_size", type=int, default = 8, help="Batch size to use")
     parser.add_argument("--optimizer", type=str, default = "adam", help="Which optimizer to use")
     parser.add_argument("--lr", type = float, default = 1e-3, help="Learning rate to use")
     parser.add_argument("--epochs", type=int, default=100, help="How many epochs to run the training for")
+    parser.add_argument("--save_path_image", type=str, help="Path where to save the generated heatmap")
     parser.add_argument("--seed", type=int, default=42, help="Execution seed")
 
     args = parser.parse_args()
@@ -128,13 +127,11 @@ def main():
 
     for category in args.categories:
         if args.mode == "train":
-            train_model(category, args.dataset, device, args.backbone, args.batch_size, args.optimizer, args.lr, args.epochs)
+            train_model(category, args.dataframe_path, args.teacher_path, device, args.backbone, args.batch_size, args.optimizer, args.lr, args.epochs, args.student_path)
         elif args.mode == "test":
-            test_model(category, args.dataset, device, args.backbone, args.batch_size)
+            test_model(category, args.dataframe_path, args.teacher_path, args.student_path, device, args.backbone, args.batch_size)
         elif args.mode == "visualize":
-            test_model(category, args.dataset, device, args.backbone, args.batch_size, visualize=True)
-        else:
-            raise ValueError("Invalid mode specified. Use 'train' or 'test'.")
+            test_model(category, args.dataframe_path, args.teacher_path, args.student_path, device, args.backbone, args.batch_size, evaluate_one=True, save_path_image = args.save_path_image)
 
 if __name__ == "__main__":
     main()

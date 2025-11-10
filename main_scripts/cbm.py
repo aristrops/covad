@@ -4,12 +4,8 @@ import torch
 import pandas as pd
 import numpy as np
 import gc
-import wandb
-
-from ptflops import get_model_complexity_info
 
 from utils.model_utils import generate_concept_logits
-from utils.plots import plot_anomaly_ratios, plot_concept_vs_main, auc_heatmap
 from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, standard_model, concepts_model, main_model
 from trainers.trainer_cbm import CBMTrainer
@@ -22,9 +18,10 @@ def make_dataloader(dataset, batch_size, shuffle = True):
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 def train_model(category: str, 
-                dataset: str,
+                dataframe_path: str,
                 anomaly_ratio: float,
                 model_type: str, 
+                save_dir: str,
                 device: torch.device, 
                 backbone: str,
                 expand_dim: int,
@@ -35,14 +32,10 @@ def train_model(category: str,
                 epochs: int = 100, 
                 use_concepts: bool = True, 
                 multiclass: bool = False,
-                use_fusion: bool = False,
-                fusion_mode: str = "concat",
                 freeze_parameters: bool = False, 
                 model_path: str = None,
-                save_concepts: bool = False,
-                use_gen_anomalies: bool = False,
-                use_wandb: bool = False,
-                project_name: str = None):
+                save_path_new_df: str = None,
+                use_gen_anomalies: bool = False):
     
     def init_optimizer(params):
         if optimizer == "adam":
@@ -51,34 +44,10 @@ def train_model(category: str,
             opt = torch.optim.SGD(params, lr = lr)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode = "min", factor = 0.1, patience = 5)
         return opt, scheduler
-    
-    config = {
-        "category": category,
-        "dataset": dataset,
-        "model_type": model_type,
-        "backbone": backbone,
-        "MLP neurons": expand_dim,
-        "lambda": lambda_,
-        "batch_size": batch_size,
-        "lr": lr,
-        "epochs": epochs,
-        "optimizer": optimizer,
-        "use_fusion": use_fusion,
-        "fusion_mode": fusion_mode,
-        "gen_anomalies": use_gen_anomalies,
-        "anomaly_ratio": anomaly_ratio
-    }
-    
-    if use_gen_anomalies:
-        dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated_gen_anomalies.csv"
-    else:
-        dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
-    model_path_student = f"/mnt/disk1/arianna_stropeni/cbm_models/stfpm_models/{category}_{backbone}.pth" if use_fusion else None
 
     #base directory
-    base_dir = f"/mnt/disk1/arianna_stropeni/cbm_models/{dataset}/{category}_models"
     sub_dir = "gen_anomalies" if use_gen_anomalies else "original_anomalies"
-    save_dir = os.path.join(base_dir, sub_dir, model_type)
+    save_dir = os.path.join(save_dir, sub_dir, model_type)
     os.makedirs(save_dir, exist_ok=True)
 
     #handle subfolders for certain models
@@ -92,15 +61,14 @@ def train_model(category: str,
     elif model_type in ["sequential", "independent"]:
         save_path = os.path.join(save_dir, "main", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
-        save_path_new_df = (f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None)
 
     dataframe = pd.read_csv(dataframe_path)
 
     state_dict = torch.load(model_path) if model_path else None
-    student_state_dict = torch.load(model_path_student) if use_fusion else None
 
     train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass, anomaly_ratio=anomaly_ratio)
     val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts, multiclass=multiclass)
+
     train_dataloader = make_dataloader(train_dataset, batch_size)
     val_dataloader = make_dataloader(val_dataset, batch_size, shuffle = False)
 
@@ -112,6 +80,7 @@ def train_model(category: str,
     if model_type == "independent":
         train_dataset_no_img = load_dataset(dataframe, "train", load_image=False, anomaly_ratio=anomaly_ratio)
         val_dataset_no_img = load_dataset(dataframe, "val", load_image=False)
+
         train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
         val_dataloader_no_img = make_dataloader(val_dataset_no_img, batch_size)
 
@@ -134,19 +103,14 @@ def train_model(category: str,
 
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=expand_dim, use_relu = True, use_sigmoid=False, 
-                            freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone, use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
+                            freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone)
         model.to(device)
         optimizer, scheduler = init_optimizer(model.parameters())
         trainer = CBMTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, scheduler, 
                                 device, lambda_ = lambda_, num_epochs=epochs, concepts=use_concepts, 
-                                weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr, save_path=save_path, use_wandb=use_wandb) 
-        if use_wandb:
-            print(f"Logging results to WandB...")
-            run_name = f"{category}_{dataset}_{model_type}_{backbone}_MLP{expand_dim}_lambda{lambda_}_lr_{lr}_fusion{use_fusion}_ratio{anomaly_ratio}_{use_gen_anomalies}gen_anomalies"
-            with wandb.init(project=project_name, name = run_name, config = config):
-                val_main_f1, val_attr_f1 = trainer.train()
-        else: 
-            val_main_f1, val_attr_f1 = trainer.train()
+                                weight_main=imbalance_ratio, weight_attr=imbalance_ratio_attr, save_path=save_path) 
+        
+        val_main_f1, val_attr_f1 = trainer.train()
 
     elif model_type == "standard":
         if multiclass:
@@ -157,32 +121,22 @@ def train_model(category: str,
         optimizer, scheduler = init_optimizer(model.parameters())
         trainer = CBMTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, scheduler,
                                 device, lambda_ = lambda_, num_epochs=epochs, concepts=False, 
-                                main_only=True, multiclass=multiclass, weight_main=imbalance_ratio, save_path=save_path, use_wandb=use_wandb) 
-        if use_wandb:
-            print(f"Logging results to WandB...")
-            run_name = f"{category}_{dataset}_{model_type}_{backbone}_lr_{lr}"
-            with wandb.init(project=project_name, name = run_name, config = config):
-                val_main_f1 = trainer.train()
-        else: 
-            val_main_f1 = trainer.train()
+                                main_only=True, multiclass=multiclass, weight_main=imbalance_ratio, save_path=save_path) 
+       
+        val_main_f1 = trainer.train()
 
     elif model_type == "independent" or model_type == "sequential":
         # common first step: attribute prediction
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=freeze_parameters, 
-                                       expand_dim=expand_dim, model_state_dict=state_dict, backbone=backbone, use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
+                                       expand_dim=expand_dim, model_state_dict=state_dict, backbone=backbone)
         concept_model.to(device)
         concept_optimizer, concept_scheduler = init_optimizer(concept_model.parameters())
 
         trainer_concepts = CBMTrainer(concept_model, num_attr, train_dataloader, val_dataloader, concept_optimizer, concept_scheduler,
                                          device, lambda_ = lambda_, num_epochs=epochs, concepts=True, 
-                                         bottleneck=True, weight_attr=imbalance_ratio_attr, save_path=save_path_concepts, use_wandb=use_wandb)
-        if use_wandb:
-            print(f"Logging results to WandB...")
-            run_name = f"{category}_{dataset}_{model_type}_concepts_{backbone}_lr_{lr}_fusion{use_fusion}_ratio{anomaly_ratio}_{use_gen_anomalies}gen_anomalies"
-            with wandb.init(project=project_name, name = run_name, config = config):
-                val_attr_f1 = trainer_concepts.train()
-        else: 
-                val_attr_f1 = trainer_concepts.train()
+                                         bottleneck=True, weight_attr=imbalance_ratio_attr, save_path=save_path_concepts)
+
+        val_attr_f1 = trainer_concepts.train()
 
         #main model: common
         main_task_model = main_model(num_attr=num_attr, expand_dim = 8)
@@ -201,47 +155,31 @@ def train_model(category: str,
 
         trainer_main = CBMTrainer(main_task_model, num_attr, train_dataloader_no_img, val_dataloader_no_img, 
                                     main_optimizer, main_scheduler, device, lambda_ = lambda_, num_epochs=epochs, 
-                                    concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path, use_wandb=use_wandb)
-        if use_wandb:
-            print(f"Logging results to WandB...")
-            run_name = f"{category}_{dataset}_{model_type}_main_{backbone}_lr_{lr}_fusion{use_fusion}_ratio{anomaly_ratio}_{use_gen_anomalies}gen_anomalies"
-            with wandb.init(project=project_name, name = run_name, config = config):
-                val_main_f1 = trainer_main.train()
-        else: 
-            val_main_f1 = trainer_main.train()
+                                    concepts=False, main_only=True, weight_main=imbalance_ratio, save_path=save_path)
 
+        val_main_f1 = trainer_main.train()
 
     torch.cuda.empty_cache()
     gc.collect()
 
 
 def test_model(category: str,
-               dataset: str, 
+               dataframe_path: str, 
                anomaly_ratio: float,
                model_type: str, 
+               save_dir: str,
                device: torch.device, 
                backbone: str,
                expand_dim: int,
                batch_size: int = 16, 
                use_concepts: bool = True,
-               use_fusion: bool = False,
-               fusion_mode: str = "concat",
-               save_concepts: bool = False,
                mode: str = "eval",
                image_path: str = None,
                use_gen_anomalies: bool = False):
-    
-    if use_gen_anomalies:
-        dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated_gen_anomalies.csv"
-    else:
-        dataframe_path = f"/mnt/disk1/arianna_stropeni/cbm_data/{dataset}/{category}_dataset_automated.csv"
-        
-    model_path_student = f"/mnt/disk1/arianna_stropeni/cbm_models/stfpm_models/{category}_{backbone}.pth" if use_fusion else None
 
     #base directory
-    base_dir = f"/mnt/disk1/arianna_stropeni/cbm_models/{dataset}/{category}_models"
     sub_dir = "gen_anomalies" if use_gen_anomalies else "original_anomalies"
-    save_dir = os.path.join(base_dir, sub_dir, model_type)
+    save_dir = os.path.join(save_dir, sub_dir, model_type)
     os.makedirs(save_dir, exist_ok=True)
 
     #handle subfolders for certain models
@@ -255,7 +193,6 @@ def test_model(category: str,
     elif model_type in ["sequential", "independent"]:
         save_path = os.path.join(save_dir, "main", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
-        save_path_new_df = (f"/mnt/disk1/arianna_stropeni/cbm_data/predicted_concepts/{category}/{model_type}_{backbone}_logits_automated.csv" if save_concepts else None)
         state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
 
     dataframe = pd.read_csv(dataframe_path)
@@ -263,9 +200,9 @@ def test_model(category: str,
     print(f"Loading state dict from {save_path}")
 
     state_dict = torch.load(save_path) if save_path else None
-    student_state_dict = torch.load(model_path_student) if use_fusion else None
 
     test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
+
     test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
     num_attr = len(test_dataset.attr_cols) if use_concepts else None
     attr_cols = test_dataset.attr_cols
@@ -280,14 +217,9 @@ def test_model(category: str,
 
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=expand_dim, use_relu = True, use_sigmoid=False, 
-                                freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test", use_fusion=use_fusion, fusion_mode=fusion_mode, student_state_dict=student_state_dict)
+                                freeze_parameters=True, model_state_dict=state_dict, backbone=backbone, mode = "test")
         
         model.to(device)
-        # macs, params = get_model_complexity_info(model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
-        # params = sum(p.numel() for p in model.parameters())
-        # print(f"MACs of the joint {backbone} model: {macs}")
-        # print(f"Parameters of the joint {backbone} model: {params/1e6:.2f} M")
-        # print(f"Size of the joint {backbone} model: {(os.path.getsize(save_path) / (1024**2)):.2f} MB")
 
         evaluator = CBMEvaluator(model, num_attr, attr_cols, test_dataloader, device, concepts=use_concepts)
 
@@ -309,14 +241,8 @@ def test_model(category: str,
     elif model_type in ["independent", "sequential"]:
         #first step: attribute prediction
         concept_model = concepts_model(num_attr=num_attr, freeze_parameters=True, 
-                                    expand_dim=expand_dim, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test", use_fusion=use_fusion, student_state_dict=student_state_dict, fusion_mode=fusion_mode)
+                                    expand_dim=expand_dim, model_state_dict=state_dict_concepts, backbone=backbone, mode = "test")
         concept_model.to(device)
-
-        # macs_concept, params_concept = get_model_complexity_info(concept_model, (3, 224, 224), as_strings=True, print_per_layer_stat=False, verbose=False)
-        # params_concept = sum(p.numel() for p in concept_model.parameters())
-        # print(f"MACs of the concept extraction model: {macs_concept}")
-        # print(f"Parameters of the concept extraction model: {params_concept/1e6:.2f} M")
-        # print(f"Size of the concept extraction model: {(os.path.getsize(save_path_concepts) / (1024**2)):.2f} MB")
 
         concept_evaluator = CBMEvaluator(concept_model, num_attr, attr_cols, test_dataloader, device, concepts = True, bottleneck = True)
 
@@ -330,7 +256,7 @@ def test_model(category: str,
         main_task_model.to(device)
 
         #generate concept logits
-        dataframe_new = generate_concept_logits(concept_model, dataframe, splits=["test"], save_path = save_path_new_df, device = device)
+        dataframe_new = generate_concept_logits(concept_model, dataframe, splits=["test"], save_path = False, device = device)
         test_dataset_no_img = load_dataset(dataframe_new, "test", load_image=False)
         test_dataloader_no_img = make_dataloader(test_dataset_no_img, batch_size)
 
@@ -351,9 +277,10 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--mode", type=str, help="Whether to train, test or perform inference on one image")
-    parser.add_argument("--dataset", type=str, help="Dataset to use (MvTec or Real-IAD)")
+    parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
     parser.add_argument("--anomaly_ratios", type=float, nargs="+", default=[1.0], help="Percentage of anomalous images to keep")
     parser.add_argument("--model_type", type = str, nargs="+", help="Which model to train, e.g. 'independent', 'joint', ...")
+    parser.add_argument("--save_dir", type=str, help="Directory to save the models in")
     parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
     parser.add_argument("--device", type=str, help="Where to run the script")
     parser.add_argument("--backbone", type = str, default="resnet18", help = "Which pre-trained network to use for concept extraction")
@@ -365,59 +292,25 @@ def main():
     parser.add_argument("--epochs", type=int, default=100, help="How many epochs to run the training for")
     parser.add_argument("--use_concepts", action="store_true", help="Whether to use concepts or not")
     parser.add_argument("--multiclass", action="store_true", help="Train the model to perform multiclass classification")
-    parser.add_argument("--use_fusion", action="store_true", help="Whether to use fused teacher-student features")
-    parser.add_argument("--fusion_mode", type=str, default="concat", help="Which fusion mode to use")
     parser.add_argument("--freeze_parameters", action="store_true", help="Whether to freeze the parameters of the network for concept prediction")
     parser.add_argument("--model_path", type=str, default = None, help="If specified, loads the state dict of a chosen model")
     parser.add_argument("--save_concepts", action="store_true", help="Whether to save the predicted concepts dataframe")
     parser.add_argument("--seed", type=int, default=42, help="Execution seed")
     parser.add_argument("--image_path", default=None, help="Path of the image to perform inference on")
     parser.add_argument("--use_gen_anomalies", action="store_true", help="Perform training on dataset with generated anomalies")
-    parser.add_argument("--use_wandb", action="store_true", help="Whether to log training results on WandB")
-    parser.add_argument("--project_name", type = str, default="cbms_for_ad", help = "Project name for WandB")
-    parser.add_argument("--save_plots", action="store_true", help="Whether to save the final plots")
 
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
 
-    results_main = {}
-    results_attr = {}
-
-    auc_scores_main, auc_scores_attr = [], []
-    f1_scores_main, f1_scores_attr = [], []
-
     for model_type in args.model_type:
         for category in args.categories:
-            if len(args.anomaly_ratios) > 1:
-                auc_scores_main, auc_scores_attr = [], []
             for anomaly_ratio in args.anomaly_ratios:                
                 if args.mode == "train":
-                    train_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.use_fusion, args.fusion_mode, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, args.use_wandb, args.project_name)
+                    train_model(category, args.dataframe_path, anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies)
                 elif args.mode == "eval" or args.mode == "inference":
-                    test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataset, anomaly_ratio, model_type, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.use_fusion, args.fusion_mode, args.save_concepts, args.mode, args.image_path, args.use_gen_anomalies)
-                    auc_scores_main.append(test_auc_main), auc_scores_attr.append(test_auc_attr)
-                    f1_scores_main.append(test_f1_main), f1_scores_attr.append(test_f1_attr)
-            
-                if len(args.anomaly_ratios) == 1 and args.mode == "eval": 
-                    mean_auc_main = np.mean(auc_scores_main)
-                    mean_auc_attr = np.mean(auc_scores_attr)
-
-                    print(f"\nAverage AD AUROC across categories: {mean_auc_main:.2f}")
-                    print(f"Average AD F1 Score across categories: {mean_auc_attr:.2f}")
-                    print(f"\nAverage concept AUROC across categories: {np.mean(auc_scores_attr):.2f}")
-                    print(f"Average concept F1 Score across categories: {np.mean(f1_scores_attr):.2f}")
-
-                    if args.save_plots:
-                        #plot_concept_vs_main(auc_scores_main, auc_scores_attr, args.categories, model_type=model_type)
-                        auc_heatmap(auc_scores_main, auc_scores_attr, mean_auc_main, mean_auc_attr, args.categories, model_type)
-
-        
-    if len(args.anomaly_ratios) > 1 and args.mode == "eval":  
-        results_main[category] = auc_scores_main
-        results_attr[category] = auc_scores_attr
-        plot_anomaly_ratios(args.anomaly_ratios, results_main, results_attr, args.expand_dim)
+                    test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataframe_path, anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies)
 
 
 if __name__ == "__main__":
