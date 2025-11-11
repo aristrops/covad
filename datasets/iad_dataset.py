@@ -1,7 +1,7 @@
 from abc import abstractmethod
 
 from torch.utils.data.dataset import Dataset
-from moviad.utilities.configurations import TaskType, Split
+from utils.configurations import TaskType, Split
 
 class IadDataset(Dataset):
     task : TaskType

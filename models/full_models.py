@@ -1,4 +1,4 @@
-from models.model_backbones import BackboneModel, MLP, End2EndModel, FusedBackbone
+from models.model_backbones import BackboneModel, MLP, End2EndModel
 
 def joint_model(num_attr, expand_dim, freeze_parameters, use_relu = False, use_sigmoid = False, backbone = "resnet18", model_state_dict = None, mode = "train", concept_intervention = False):
     model_1 = BackboneModel(num_attr=num_attr, num_classes = 1, freeze_parameters=freeze_parameters, expand_dim=expand_dim, bottleneck=True, backbone = backbone)

@@ -240,10 +240,10 @@ class CBMTrainer:
 
         for epoch in range(self.num_epochs):
 
-            train_loss, train_acc_main, train_acc_attr, train_f1_main, train_f1_attr = self.helper_train(epoch, self.train_dataloader, is_training=True)
+            train_loss, train_acc_main, train_acc_attr, train_f1_main, train_f1_attr = self.helper_train(self.train_dataloader, is_training=True)
 
             with torch.no_grad():
-                val_loss, val_acc_main, val_acc_attr, val_f1_main, val_f1_attr = self.helper_train(epoch, self.val_dataloader, is_training=False)
+                val_loss, val_acc_main, val_acc_attr, val_f1_main, val_f1_attr = self.helper_train(self.val_dataloader, is_training=False)
             
             log = f"Epoch [{epoch}/{self.num_epochs}]: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}"
 
