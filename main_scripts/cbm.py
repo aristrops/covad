@@ -71,8 +71,7 @@ def train_model(category: str,
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
 
     dataframe = pd.read_csv(dataframe_path)
-    if contaminate:
-        dataframe_original = pd.read_csv(dataframe_path_original)
+    dataframe_original = pd.read_csv(dataframe_path_original) if contaminate else None
 
     state_dict = torch.load(model_path) if model_path else None
 
