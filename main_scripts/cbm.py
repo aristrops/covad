@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import gc
 
+from torch.utils.data import ConcatDataset
 from utils.model_utils import generate_concept_logits
 from datasets.concept_dataset import ConceptDataset
 from models.full_models import joint_model, standard_model, concepts_model, main_model
@@ -217,10 +218,22 @@ def test_model(category: str,
     state_dict = torch.load(save_path) if save_path else None
 
     test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
-
-    test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
     num_attr = len(test_dataset.attr_cols) if use_concepts else None
     attr_cols = test_dataset.attr_cols
+
+
+    val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts)
+    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts)
+
+    if use_gen_anomalies:
+        test_dataset = ConcatDataset([train_dataset, val_dataset, test_dataset])
+
+    test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
+
+    #test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
+
+    test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
+
 
     if mode == "eval":
         print(f"\nNumber of test images: {len(test_dataset)}")
