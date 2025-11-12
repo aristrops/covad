@@ -35,6 +35,7 @@ class ConceptDataset(Dataset):
         self.n_class_attr = n_class_attr
         self.anomaly_ratio = anomaly_ratio
         self.random_state = random_state
+        self.n_per_type = n_per_type
 
         self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
 
