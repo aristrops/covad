@@ -11,15 +11,18 @@ from models.full_models import joint_model, standard_model, concepts_model, main
 from trainers.trainer_cbm import CBMTrainer
 from evaluators.evaluator_cbm import CBMEvaluator
 
-def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False, anomaly_ratio = 1.0):
-    return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass, anomaly_ratio=anomaly_ratio)
+def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False, anomaly_ratio = 1.0, contaminate = False, n_per_type = 0, original_df = None):
+    return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass, anomaly_ratio=anomaly_ratio, contaminate=contaminate, n_per_type=n_per_type, original_df=original_df)
 
 def make_dataloader(dataset, batch_size, shuffle = True):
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 def train_model(category: str, 
                 dataframe_path: str,
+                dataframe_path_original: str,
                 anomaly_ratio: float,
+                contaminate: bool, #add some original images to the training set of generated anomalies
+                n_per_type: int, #number of original images per defect to add
                 model_type: str, 
                 save_dir: str,
                 device: torch.device, 
@@ -46,7 +49,12 @@ def train_model(category: str,
         return opt, scheduler
 
     #base directory
-    sub_dir = "gen_anomalies" if use_gen_anomalies else "original_anomalies"
+    if use_gen_anomalies and contaminate:
+        sub_dir = "gen_anomalies_weakly_sup"
+    elif use_gen_anomalies and not contaminate:
+        sub_dir = "gen_anomalies"
+    elif not use_gen_anomalies:
+        sub_dir = "original_anomalies"
     save_dir = os.path.join(save_dir, sub_dir, model_type)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -63,10 +71,12 @@ def train_model(category: str,
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
 
     dataframe = pd.read_csv(dataframe_path)
+    if contaminate:
+        dataframe_original = pd.read_csv(dataframe_path_original)
 
     state_dict = torch.load(model_path) if model_path else None
 
-    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass, anomaly_ratio=anomaly_ratio)
+    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass, anomaly_ratio=anomaly_ratio, contaminate = contaminate, n_per_type=n_per_type, original_df = dataframe_original)
     val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts, multiclass=multiclass)
 
     train_dataloader = make_dataloader(train_dataset, batch_size)
@@ -278,7 +288,10 @@ def main():
 
     parser.add_argument("--mode", type=str, help="Whether to train, test or perform inference on one image")
     parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
+    parser.add_argument("--dataframe_path_original", type=str, help="Path to original dataframe to add original images")
     parser.add_argument("--anomaly_ratios", type=float, nargs="+", default=[1.0], help="Percentage of anomalous images to keep")
+    parser.add_argument("--contaminate", action="store_true", help="Whether to contaminate the generated dataset with some original anomalous samples")
+    parser.add_argument("--n_per_type", type=int, default = 0, help="How many original images to add to the generated dataset")
     parser.add_argument("--model_type", type = str, nargs="+", help="Which model to train, e.g. 'independent', 'joint', ...")
     parser.add_argument("--save_dir", type=str, help="Directory to save the models in")
     parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
@@ -308,7 +321,7 @@ def main():
         for category in args.categories:
             for anomaly_ratio in args.anomaly_ratios:                
                 if args.mode == "train":
-                    train_model(category, args.dataframe_path, anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies)
+                    train_model(category, args.dataframe_path, args.dataframe_path_original, anomaly_ratio, args.contaminate, args.n_per_type, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies)
                 elif args.mode == "eval" or args.mode == "inference":
                     test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataframe_path, anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies)
 

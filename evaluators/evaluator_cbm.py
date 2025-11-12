@@ -5,7 +5,7 @@ import torchvision.transforms as transforms
 
 from PIL import Image
 
-from utils.metrics import AverageMeter, binary_accuracy
+from utils.metrics import AverageMeter, binary_accuracy, compute_image_f1
 from sklearn.metrics import f1_score, roc_auc_score
 
 class CBMEvaluator:
@@ -108,7 +108,8 @@ class CBMEvaluator:
             all_main_probs = torch.cat(all_main_probs).numpy()
 
             #compute main F1 score
-            f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
+            #f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
+            f1_main, best_thresh_main = compute_image_f1(all_main_targets, all_main_probs)
             auc_main = roc_auc_score(all_main_targets, all_main_probs)
         else:
             f1_main = 0
@@ -131,7 +132,15 @@ class CBMEvaluator:
             mean_auc = np.nanmean(aucs)
 
             #compute F1 score
-            f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "weighted")
+            #f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "weighted")
+            f1_attr_scores = []
+            thresholds_attr = []
+            for i in range(all_attr_targets.shape[1]):
+                f1_i, thr_i = compute_image_f1(all_attr_targets[:, i], all_attr_probs[:, i])
+                f1_attr_scores.append(f1_i)
+                thresholds_attr.append(thr_i)
+
+            f1_attr = np.nanmean(f1_attr_scores)
 
             #compute attribute-specific f1-score
             f1_scores_attr = []
@@ -157,7 +166,7 @@ class CBMEvaluator:
             print(f"F1 Score of the concept prediction task: {f1_attr:.2f}")
         else:
             print(f"\nAUC Score of the main task: {auc_main:.2f}")
-            print(f"F1 Score of the main task: {f1_main:.2f}")
+            print(f"F1 Score of the main task: {f1_main:.2f} achieved at threshold {best_thresh_main:.2f}")
             if self.concepts:
                 print(f"\nAccuracy of the concept prediction task: {accuracy_meter_attr.avg.item():.2f}")
                 print(f"AUC of the concept prediction task: {mean_auc:.2f}")

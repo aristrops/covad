@@ -19,7 +19,10 @@ class ConceptDataset(Dataset):
         load_mask: bool = False,
         n_class_attr: int = 2,
         anomaly_ratio: float = 1.0,
-        random_state: int = 42
+        random_state: int = 42,
+        contaminate: bool = False,
+        n_per_type: int = 0,
+        original_df: pd.DataFrame = None,
     ) -> None:
         super(ConceptDataset)
 
@@ -34,6 +37,9 @@ class ConceptDataset(Dataset):
         self.random_state = random_state
 
         self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
+
+        if contaminate and split == "train" and original_df is not None:
+            self.df = self.contaminate_with_originals(self.df, original_df, n_per_type=self.n_per_type, random_state=random_state)
 
         if split == "train" and anomaly_ratio < 1.0:
             self.df = self.subsample_anomalies(self.df, anomaly_ratio, random_state)
@@ -82,6 +88,30 @@ class ConceptDataset(Dataset):
         ).reset_index(drop = True)
 
         return new_df
+
+    def contaminate_with_originals(self, df_generated, df_original, n_per_type=3, random_state=42):
+        np.random.seed(random_state)
+
+        # Only use anomaly rows (exclude "good")
+        original_anomalies = df_original[df_original["anomaly_type"] != "good"]
+
+        contaminated_samples = []
+        for anomaly_type, group in original_anomalies.groupby("anomaly_type"):
+            if len(group) >= n_per_type:
+                sampled = group.sample(n=n_per_type, random_state=random_state)
+            else:
+                sampled = group  #if fewer than 3 available, take all
+            contaminated_samples.append(sampled)
+
+        if not contaminated_samples:
+            return df_generated  #nothing to add
+
+        contamination_df = pd.concat(contaminated_samples, axis=0)
+        combined_df = pd.concat([df_generated, contamination_df], axis=0).sample(frac=1.0, random_state=random_state).reset_index(drop=True)
+
+        print(f"✅ Contaminated training set: added {len(contamination_df)} original anomaly images.")
+        return combined_df
+    
 
     def __len__(self):
         return len(self.df)

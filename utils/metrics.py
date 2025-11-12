@@ -164,6 +164,19 @@ def compute_pixel_f1(y_true, y_pred):
     return np.max(f1)
 
 
+def compute_image_f1(y_true, y_pred):
+    precision, recall, thresholds = precision_recall_curve(y_true, y_pred)
+
+    a = 2 * precision * recall
+    b = precision + recall
+
+    f1 = np.divide(a, b, out=np.zeros_like(a), where=b != 0)
+
+    best_idx = np.argmax(f1)
+
+    return f1[best_idx], thresholds[best_idx]
+
+
 #normalization
 def min_max_norm(x):
     return (x - x.min()) / (x.max() - x.min())
