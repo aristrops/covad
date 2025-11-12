@@ -71,8 +71,7 @@ def train_model(category: str,
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
 
     dataframe = pd.read_csv(dataframe_path)
-    if contaminate:
-        dataframe_original = pd.read_csv(dataframe_path_original)
+    dataframe_original = pd.read_csv(dataframe_path_original) if contaminate else None
 
     state_dict = torch.load(model_path) if model_path else None
 
@@ -114,6 +113,8 @@ def train_model(category: str,
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=expand_dim, use_relu = True, use_sigmoid=False, 
                             freeze_parameters=freeze_parameters, model_state_dict=state_dict, backbone=backbone)
+        # save train and val dataframe in the state dict
+        model.train_df = pd.concat([train_dataset.df, val_dataset.df], ignore_index=True)
         model.to(device)
         optimizer, scheduler = init_optimizer(model.parameters())
         trainer = CBMTrainer(model, num_attr, train_dataloader, val_dataloader, optimizer, scheduler, 
@@ -215,8 +216,31 @@ def test_model(category: str,
 
     print(f"Loading state dict from {save_path}")
 
-    state_dict = torch.load(save_path) if save_path else None
+    state_dict = torch.load(save_path, weights_only=False) if save_path else None
 
+    if state_dict is not None:
+        train_df = state_dict.get("train_df", None)
+        # access only the train and val splits
+        if train_df is not None:
+            # remove from train_df the test split
+            train_df = train_df[train_df["split"].isin(["train", "val"])]
+            # to check occurrences, we can use the image paths, but only the filename and dirname of the parent folder and not the full path
+            def get_rel_path(path):
+                return os.path.join(os.path.basename(os.path.dirname(path)), os.path.basename(path))
+            train_df["rel_path"] = train_df["image_path"].apply(get_rel_path)
+            dataframe["rel_path"] = dataframe["image_path"].apply(get_rel_path)
+
+            # just for debugging
+            # find original anomalies which are the ones that don't have "gen" in the filepath
+            # original_anomalies = train_df[~train_df["image_path"].str.contains("gen")]
+            # remove all images that have label_index == 0
+            # original_anomalies = original_anomalies[original_anomalies["label_index"] != 0]
+
+            # remove rows that occur both in train_df and dataframe (test set)
+            dataframe = dataframe[~dataframe["rel_path"].isin(train_df["rel_path"])]
+            dataframe = dataframe.drop(columns=["rel_path"])
+
+        
     test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
 
     test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
@@ -317,6 +341,10 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Execution seed")
     parser.add_argument("--image_path", default=None, help="Path of the image to perform inference on")
     parser.add_argument("--use_gen_anomalies", action="store_true", help="Perform training on dataset with generated anomalies")
+    parser.add_argument("--gemini_logo_mask_path", default=None, help="Path to the Gemini logo mask to be applied to all images")
+    
+    # set the gemini_logo_mask_path as an evironment variable
+    os.environ["GEMINI_LOGO_MASK_PATH"] = parser.parse_args().gemini_logo_mask_path if parser.parse_args().gemini_logo_mask_path is not None else ""
 
     args = parser.parse_args()
 

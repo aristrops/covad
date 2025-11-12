@@ -48,7 +48,7 @@ def train_model(category: str,
     print(f"Training student model for {category} category...")
 
     teacher_model = BackboneModelFeatures(pretrained = True, backbone = backbone)
-    teacher_model.load_state_dict(state_dict, strict=False)
+    teacher_model.load_state_dict(state_dict)
 
     student_model = BackboneModelFeatures(pretrained=False, backbone=backbone)
 
@@ -69,7 +69,7 @@ def test_model(category: str,
 
     dataframe = pd.read_csv(dataframe_path)
 
-    state_dict = torch.load(teacher_path) 
+    state_dict = torch.load(teacher_path)
     state_dict = {
         k.replace("first_model.", ""): v
         for k, v in state_dict.items()
@@ -79,7 +79,7 @@ def test_model(category: str,
     state_dict_student = torch.load(student_path)
     
     teacher_model = BackboneModelFeatures(pretrained=True, backbone=backbone)
-    teacher_model.load_state_dict(state_dict, strict=False)
+    teacher_model.load_state_dict(state_dict)
 
     student_model = BackboneModelFeatures(pretrained=True, backbone=backbone)
     student_model.load_state_dict(state_dict_student, strict = False)

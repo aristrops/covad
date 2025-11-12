@@ -4,7 +4,7 @@ def joint_model(num_attr, expand_dim, freeze_parameters, use_relu = False, use_s
     model_1 = BackboneModel(num_attr=num_attr, num_classes = 1, freeze_parameters=freeze_parameters, expand_dim=expand_dim, bottleneck=True, backbone = backbone)
     if mode == "train":
         filtered_dict = {k: v for k, v in model_state_dict.items() if not k.startswith('fc_layers.0')}
-        model_1.load_state_dict(filtered_dict, strict=False)
+        model_1.load_state_dict(filtered_dict)
         if freeze_parameters:
             print("Using frozen parameters...")
         else:
@@ -17,7 +17,7 @@ def joint_model(num_attr, expand_dim, freeze_parameters, use_relu = False, use_s
 
     if mode == "test":
         if not concept_intervention:
-            full_model.load_state_dict(model_state_dict, strict=False)
+            full_model.load_state_dict(model_state_dict)
         else:
             concept_state_dict = {k.replace("first_model.", ""): v
                                 for k, v in model_state_dict.items()
@@ -43,20 +43,20 @@ def standard_model(freeze_parameters, backbone = "resnet18", model_state_dict = 
         if mode == "train":
             print(f"Using weights of pre-trained model for attribute prediction...")
             filtered_dict = {k: v for k, v in model_state_dict.items() if not k.startswith('fc_layers.0.fc')}
-            model.load_state_dict(filtered_dict, strict=False)
+            model.load_state_dict(filtered_dict)
             if freeze_parameters:
                 print("Using frozen parameters...")
             else:
                 print("Fine-tuning last layer...")
         if mode == "test":
-            model.load_state_dict(model_state_dict, strict=False)
+            model.load_state_dict(model_state_dict)
     return model
 
 def concepts_model(num_attr, freeze_parameters, expand_dim, backbone = "resnet18", model_state_dict = None, mode = "train"): #for concept prediction in independent and sequential model
     model = BackboneModel(num_attr=num_attr, num_classes=1, freeze_parameters=freeze_parameters, expand_dim=expand_dim, bottleneck=True, backbone=backbone)
     if mode == "train":
         filtered_dict = {k: v for k, v in model_state_dict.items() if not k.startswith('fc_layers.0')}
-        model.load_state_dict(filtered_dict, strict=False)
+        model.load_state_dict(filtered_dict)
         if freeze_parameters:
             print("Using frozen parameters...")
         else:

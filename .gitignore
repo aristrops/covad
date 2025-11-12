@@ -197,6 +197,8 @@ pyrightconfig.json
 *.jpg
 *.jpeg
 
+!datasets/gemini_logo_mask.png
+
 # Ignore JSON files
 *.json
 

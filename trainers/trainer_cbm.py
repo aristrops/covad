@@ -238,6 +238,7 @@ class CBMTrainer:
 
     def train(self):
 
+        val_loss, val_acc_main, val_acc_attr, val_f1_main, val_f1_attr = None, None, None, None, None
         for epoch in range(self.num_epochs):
 
             train_loss, train_acc_main, train_acc_attr, train_f1_main, train_f1_attr = self.helper_train(self.train_dataloader, is_training=True)
