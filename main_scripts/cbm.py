@@ -219,40 +219,46 @@ def test_model(category: str,
 
     state_dict = torch.load(save_path, weights_only=False) if save_path else None
 
-    if state_dict is not None:
-        train_df = state_dict.get("train_df", None)
-        # access only the train and val splits
-        if train_df is not None:
-            # remove from train_df the test split
-            train_df = train_df[train_df["split"].isin(["train", "val"])]
-            # to check occurrences, we can use the image paths, but only the filename and dirname of the parent folder and not the full path
-            def get_rel_path(path):
-                return os.path.join(os.path.basename(os.path.dirname(path)), os.path.basename(path))
-            train_df["rel_path"] = train_df["image_path"].apply(get_rel_path)
-            dataframe["rel_path"] = dataframe["image_path"].apply(get_rel_path)
-
-            # just for debugging
-            # find original anomalies which are the ones that don't have "gen" in the filepath
-            # original_anomalies = train_df[~train_df["image_path"].str.contains("gen")]
-            # remove all images that have label_index == 0
-            # original_anomalies = original_anomalies[original_anomalies["label_index"] != 0]
-
-            # remove rows that occur both in train_df and dataframe (test set)
-            dataframe = dataframe[~dataframe["rel_path"].isin(train_df["rel_path"])]
-            dataframe = dataframe.drop(columns=["rel_path"])
-
-        
     test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
     num_attr = len(test_dataset.attr_cols) if use_concepts else None
     attr_cols = test_dataset.attr_cols
 
-
-    val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts)
-    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts)
-
     if use_gen_anomalies:
-        test_dataset = ConcatDataset([train_dataset, val_dataset, test_dataset])
+        val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts)
+        train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts)
+        test_df = pd.concat([train_dataset.df, val_dataset.df, test_dataset.df], ignore_index=True)
 
+        print(f"test_df len: {len(test_df)}")
+        print(f"val_df len: {len(val_dataset)}")
+        print(f"train_df len: {len(train_dataset)}")
+
+        if state_dict is not None:
+            train_df = state_dict.get("train_df", None)
+            # access only the train and val splits
+            if train_df is not None:
+                # remove from train_df the test split
+                train_df = train_df[train_df["split"].isin(["train", "val"])]
+                # to check occurrences, we can use the image paths, but only the filename and dirname of the parent folder and not the full path
+                def get_rel_path(path):
+                    return os.path.join(os.path.basename(os.path.dirname(path)), os.path.basename(path))
+                train_df["rel_path"] = train_df["image_path"].apply(get_rel_path)
+                # find original anomalies which are the ones that don't have "gen" in the filepath
+                train_df = train_df[~train_df["image_path"].str.contains("gen")]
+
+                test_df["rel_path"] = test_df["image_path"].apply(get_rel_path)
+
+                # remove rows that occur both in train_df and dataframe (test set)
+                test_df = test_df[~test_df["rel_path"].isin(train_df["rel_path"])]
+                test_df = test_df.drop(columns=["rel_path"])
+
+        # repeated code
+        test_dataset = load_dataset(test_df, "test", use_attr=use_concepts)
+        num_attr = len(test_dataset.attr_cols) if use_concepts else None
+        attr_cols = test_dataset.attr_cols
+        val_dataset = load_dataset(test_df, "val", use_attr=use_concepts)
+        train_dataset = load_dataset(test_df, "train", use_attr=use_concepts)
+        test_dataset = ConcatDataset([train_dataset, val_dataset, test_dataset])
+    
     test_dataloader = make_dataloader(test_dataset, batch_size, shuffle = False)
 
     #test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
