@@ -176,6 +176,7 @@ def train_model(category: str,
 def test_model(category: str,
                dataframe_path: str, 
                anomaly_ratio: float,
+               contaminate: bool,
                model_type: str, 
                save_dir: str,
                device: torch.device, 
@@ -188,7 +189,12 @@ def test_model(category: str,
                use_gen_anomalies: bool = False):
 
     #base directory
-    sub_dir = "gen_anomalies" if use_gen_anomalies else "original_anomalies"
+    if use_gen_anomalies and contaminate:
+        sub_dir = "gen_anomalies_weakly_sup"
+    elif use_gen_anomalies and not contaminate:
+        sub_dir = "gen_anomalies"
+    elif not use_gen_anomalies:
+        sub_dir = "original_anomalies"
     save_dir = os.path.join(save_dir, sub_dir, model_type)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -323,7 +329,7 @@ def main():
                 if args.mode == "train":
                     train_model(category, args.dataframe_path, args.dataframe_path_original, anomaly_ratio, args.contaminate, args.n_per_type, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies)
                 elif args.mode == "eval" or args.mode == "inference":
-                    test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataframe_path, anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies)
+                    test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataframe_path, anomaly_ratio, args.contaminate, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies)
 
 
 if __name__ == "__main__":
