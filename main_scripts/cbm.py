@@ -344,6 +344,7 @@ def main():
 
     parser.add_argument("--mode", type=str, help="Whether to train, test or perform inference on one image")
     parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
+    parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
     parser.add_argument("--dataframe_path_original", type=str, help="Path to original dataframe to add original images")
     parser.add_argument("--subsample_anomalies", action="store_true", help="Whether to use a reduced number of anomalous images per defect type")
     parser.add_argument("--contaminate", action="store_true", help="Whether to contaminate the generated dataset with some original anomalous samples")
@@ -378,11 +379,11 @@ def main():
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
 
-    for model_type in args.model_type:           
-        if args.mode == "train":
-            train_model(args.category, args.dataframe_path, args.dataframe_path_original, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, args.seed)
-        elif args.mode == "eval" or args.mode == "inference":
-            test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(args.category, args.dataframe_dir, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies, args.seed)
+        for model_type in args.model_type:           
+            if args.mode == "train":
+                train_model(args.category, args.dataframe_path, args.dataframe_path_original, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, seed)
+            elif args.mode == "eval" or args.mode == "inference":
+                test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(args.category, args.dataframe_path, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies, seed)
 
 
 if __name__ == "__main__":
