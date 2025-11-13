@@ -8,6 +8,9 @@ The repository is organized as follows:
 - [/trainers](/trainers) and [/evaluators](/evaluators) contain the scripts for respectively training and evaluating both the CBM models and the novelty detection branch for the generation of a heatmap;
 - [/main_scripts](/main_scripts) contains the scripts for performing data annotation with concepts, CBM training/testing, novelty detection training/testing, concept evaluation and intervention over concepts.
 
+See `main.sh` for an example of how to run the main scripts.
+
+
 ## Dataset
 We tested our dataset creation pipeline starting from the [MVTec-AD dataset](/https://www.mvtec.com/company/research/datasets/mvtec-ad), which was modified to include artificially generated anomalous images, together with the original ones, and concept annotation. To replicate our pipeline for concept extraction and annotation, the MVTec-AD dataset should be stored according to the following structure:
 ```bash
@@ -27,3 +30,12 @@ We tested our dataset creation pipeline starting from the [MVTec-AD dataset](/ht
 │   ├── capsule
 │   ├── ...
 ```
+
+## Paper Abstract
+In recent years, Visual Anomaly Detection (VAD) has gained significant attention due to its ability to identify anomalous images using only normal images during training.
+Many VAD models work without pixel-level supervision, but are still able to provide visual explanations by highlighting the anomalous regions within an image.
+However, though these visual explanations can be helpful, they lack a direct and semantically meaningful interpretation for users.
+To address this limitation, we propose adapting Concept Bottleneck Models (CBMs) to the VAD setting. 
+By learning meaningful concepts, the network can provide human-interpretable descriptions of anomalies, offering a novel and more insightful way to explain them.
+Our contributions are threefold: (i) we develop a Concept Dataset to support research on CBMs for VAD; (ii) we modify the CBM architecture to generate both concept-based and visual explanations, bridging interpretability and localization; and (iii) we introduce a pipeline for synthesizing artificial anomalies, preserving the VAD paradigm of training solely on normal data.
+Our approach, Concept-Aware Visual Anomaly Detection (\ourmethod{}), achieves performance comparable to classic VAD methods while providing richer, concept-driven explanations that enhance interpretability and trust in VAD systems.
