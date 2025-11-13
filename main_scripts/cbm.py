@@ -365,7 +365,7 @@ def main():
     parser.add_argument("--freeze_parameters", action="store_true", help="Whether to freeze the parameters of the network for concept prediction")
     parser.add_argument("--model_path", type=str, default = None, help="If specified, loads the state dict of a chosen model")
     parser.add_argument("--save_concepts", action="store_true", help="Whether to save the predicted concepts dataframe")
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42], help="Execution seed")
+    parser.add_argument("--seed", type=int, nargs="+", default=[42], help="Execution seed")
     parser.add_argument("--image_path", default=None, help="Path of the image to perform inference on")
     parser.add_argument("--use_gen_anomalies", action="store_true", help="Perform training on dataset with generated anomalies")
     parser.add_argument("--gemini_logo_mask_path", default=None, help="Path to the Gemini logo mask to be applied to all images")
@@ -375,15 +375,14 @@ def main():
 
     args = parser.parse_args()
 
-    for seed in args.seeds:
-        torch.manual_seed(seed)
-        device = torch.device(args.device)
+    torch.manual_seed(args.seed)
+    device = torch.device(args.device)
 
-        for model_type in args.model_type:           
-            if args.mode == "train":
-                train_model(args.category, args.dataframe_dir, args.dataframe_path_original, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, seed)
-            elif args.mode == "eval" or args.mode == "inference":
-                test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(args.category, args.dataframe_dir, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies, seed)
+    for model_type in args.model_type:           
+        if args.mode == "train":
+            train_model(args.category, args.dataframe_dir, args.dataframe_path_original, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, args.seed)
+        elif args.mode == "eval" or args.mode == "inference":
+            test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(args.category, args.dataframe_dir, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies, args.seed)
 
 
 if __name__ == "__main__":
