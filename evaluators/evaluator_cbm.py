@@ -36,14 +36,14 @@ class CBMEvaluator:
         accuracy_meter_attr = AverageMeter()
 
         if not self.bottleneck:
-            all_main_preds, all_main_targets, all_main_probs = [], [], []
+            all_main_targets, all_main_probs = [], []
         else:
-            all_main_preds = all_main_targets = all_main_probs = None
+            all_main_targets = all_main_probs = None
 
         if not self.main_only:
-            all_attr_probs, all_attr_preds, all_attr_targets = [], [], []
+            all_attr_probs, all_attr_targets = [], []
         else:
-            all_attr_probs = all_attr_preds = all_attr_targets = None
+            all_attr_probs = all_attr_targets = None
             accuracy_meter_attr = None
         
         total_inference_time = 0.0
@@ -76,9 +76,7 @@ class CBMEvaluator:
             if not self.bottleneck:
                 logits_main = predictions[0].squeeze(1) if isinstance(predictions, list) else predictions.squeeze(1)
                 probs_main = torch.sigmoid(logits_main)
-                main_preds = (probs_main >= 0.5).int()
 
-                all_main_preds.append(main_preds.cpu())
                 all_main_targets.append(labels.cpu().int())
                 all_main_probs.append(probs_main.cpu())
 
@@ -93,31 +91,30 @@ class CBMEvaluator:
                     attr_logits = torch.cat(predictions, dim = 1)
                 
                 probs_attr = torch.sigmoid(attr_logits)
-                attr_preds = (probs_attr >= 0.5).int()
 
                 all_attr_probs.append(probs_attr.cpu())
-                all_attr_preds.append(attr_preds.cpu())
                 all_attr_targets.append(concepts.cpu().int())
 
                 accuracy_attr = binary_accuracy(probs_attr.cpu(), concepts.cpu())
                 accuracy_meter_attr.update(accuracy_attr.numpy(), inputs.size(0))
         
-        if not self.bottleneck and all_main_preds is not None:
-            all_main_preds = torch.cat(all_main_preds).numpy()
+        if not self.bottleneck and all_main_probs is not None:
             all_main_targets = torch.cat(all_main_targets).numpy()
             all_main_probs = torch.cat(all_main_probs).numpy()
 
             #compute main F1 score
-            #f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
             f1_main, best_thresh_main = compute_image_f1(all_main_targets, all_main_probs)
             auc_main = roc_auc_score(all_main_targets, all_main_probs)
+
+            #predict label according to the best threshold
+            main_preds = (all_main_probs >= best_thresh_main).astype(int)
+
         else:
             f1_main = 0
             auc_main = 0
 
         if all_attr_probs:
             all_attr_probs = torch.cat(all_attr_probs).numpy()
-            all_attr_preds = torch.cat(all_attr_preds).numpy()
             all_attr_targets = torch.cat(all_attr_targets).numpy()
 
             #compute AUC
@@ -132,7 +129,6 @@ class CBMEvaluator:
             mean_auc = np.nanmean(aucs)
 
             #compute F1 score
-            #f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "weighted")
             f1_attr_scores = []
             thresholds_attr = []
             for i in range(all_attr_targets.shape[1]):
@@ -142,17 +138,17 @@ class CBMEvaluator:
 
             f1_attr = np.nanmean(f1_attr_scores)
 
-            #compute attribute-specific f1-score
-            f1_scores_attr = []
-            for i, attr_name in enumerate(self.attr_cols):
-                f1 = f1_score(all_attr_targets[:, i], all_attr_preds[:, i])
-                f1_scores_attr.append((attr_name, f1))
+            # #compute attribute-specific f1-score
+            # f1_scores_attr = []
+            # for i, attr_name in enumerate(self.attr_cols):
+            #     f1 = f1_score(all_attr_targets[:, i], all_attr_preds[:, i])
+            #     f1_scores_attr.append((attr_name, f1))
 
-            f1_scores_attr = sorted(f1_scores_attr, key=lambda x: (np.isnan(x[1]), x[1]))
+            # f1_scores_attr = sorted(f1_scores_attr, key=lambda x: (np.isnan(x[1]), x[1]))
 
-            # print("\nPer-Attribute F1 Score:")
-            # for name, score in f1_scores_attr:
-            #     print(f"{name}: F1 Score = {score:.4f}")
+            # # print("\nPer-Attribute F1 Score:")
+            # # for name, score in f1_scores_attr:
+            # #     print(f"{name}: F1 Score = {score:.4f}")
 
         else:
             mean_auc = 0
@@ -180,7 +176,7 @@ class CBMEvaluator:
             if self.main_only:
                 return auc_main, f1_main
             else:
-                return auc_main, f1_main, mean_auc, f1_attr
+                return auc_main, f1_main, mean_auc, f1_attr, main_preds
     
     
     #-----Function to perform inference on a single image-------

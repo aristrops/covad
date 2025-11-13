@@ -1,0 +1,12 @@
+python -m main_scripts.cbm \
+    --dataframe_path cbm_data/mvtec/hazelnut_dataset_automated.csv \
+    --model_type sequential \
+    --save_dir cbm_models/mvtec/hazelnut_models \
+    --category hazelnut \
+    --device cpu \
+    --backbone mobilenet_v2 \
+    --model_path cbm_models/backbones/fine-tuned-mobilenet.pth \
+    --use_concepts \
+    --gemini_logo_mask_path datasets/gemini_logo_mask.png \
+    --mode eval \
+    --lambda_ 0.55

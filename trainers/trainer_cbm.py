@@ -162,8 +162,8 @@ class CBMTrainer:
                 probs_main = torch.sigmoid(logits_main)
                 main_preds = (probs_main >= 0.5).int()
 
-                all_main_preds.append(main_preds.cpu())
-                all_main_targets.append(labels.cpu().int())
+                all_main_preds.append(main_preds)
+                all_main_targets.append(labels.int())
 
                 accuracy_main = binary_accuracy(probs_main, labels)
                 accuracy_meter_main.update(accuracy_main.item(), images.size(0))
@@ -178,11 +178,11 @@ class CBMTrainer:
                 probs_attr = torch.sigmoid(attr_logits)
                 attr_preds = (probs_attr >= 0.5).int()
 
-                all_attr_preds.append(attr_preds.cpu())
-                all_attr_targets.append(concepts.cpu().int())
+                all_attr_preds.append(attr_preds)
+                all_attr_targets.append(concepts.int())
 
                 accuracy_attr = binary_accuracy(probs_attr, concepts)
-                accuracy_meter_attr.update(accuracy_attr.numpy(), images.size(0))
+                accuracy_meter_attr.update(accuracy_attr.item(), images.size(0))
 
             if self.concepts:
                 if self.bottleneck:
@@ -200,16 +200,16 @@ class CBMTrainer:
                 self.optimizer.step()
         
         if not self.bottleneck and all_main_preds is not None:
-            all_main_preds = torch.cat(all_main_preds).numpy()
-            all_main_targets = torch.cat(all_main_targets).numpy()
+            all_main_preds = torch.cat(all_main_preds).cpu().numpy()
+            all_main_targets = torch.cat(all_main_targets).cpu().numpy()
 
             f1_main = f1_score(all_main_targets, all_main_preds, average="binary")
         else:
             f1_main = 0
 
         if all_attr_preds:
-            all_attr_preds = torch.cat(all_attr_preds).numpy()
-            all_attr_targets = torch.cat(all_attr_targets).numpy()
+            all_attr_preds = torch.cat(all_attr_preds).cpu().numpy()
+            all_attr_targets = torch.cat(all_attr_targets).cpu().numpy()
 
             f1_attr = f1_score(all_attr_targets, all_attr_preds, average = "weighted")
         else:
@@ -233,7 +233,7 @@ class CBMTrainer:
         
         loss_meter, acc_main, acc_attr, f1_main, f1_attr = self.run_epoch(dataloader, loss_meter, acc_main, acc_attr, is_training=is_training)
 
-        return loss_meter.avg, acc_main.avg, acc_attr.avg.item(), f1_main, f1_attr
+        return loss_meter.avg, acc_main.avg, acc_attr.avg, f1_main, f1_attr
 
 
     def train(self):

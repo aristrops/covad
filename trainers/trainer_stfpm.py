@@ -96,7 +96,7 @@ class STFPMTrainer:
 
             #collect and resize GT masks
             resized_masks = F.interpolate(mask.float(), size = (64, 64), mode = "nearest")
-            gt_masks.append(resized_masks.squeeze().cpu().numpy())
+            gt_masks.append(resized_masks.squeeze(1).cpu().numpy())
 
             i += image.size(0)
         

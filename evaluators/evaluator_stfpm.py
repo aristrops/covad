@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from scipy.ndimage import gaussian_filter
 
-from utils.metrics import compute_pixel_f1, min_max_norm, compute_pixel_pro, compute_pixel_pr
+from utils.metrics import compute_pixel_f1, min_max_norm, compute_pixel_pro, compute_pixel_pr, compute_image_f1
 
 class STFPMEvaluator:
     def __init__(self,
@@ -123,12 +123,13 @@ class STFPMEvaluator:
 
             #collect and resize GT masks
             resized_masks = F.interpolate(mask.float(), size = (64, 64), mode = "nearest")
-            gt_masks.append(resized_masks.squeeze().cpu().numpy())
+            gt_masks.append(resized_masks.squeeze(1).cpu().numpy())
 
             i += image.size(0)
         
         gt_masks = np.concatenate(gt_masks, axis = 0)
 
+        # ---------------- Pixel-level metrics ----------------
         y_pred = loss_map
         pred_masks = min_max_norm(y_pred)
 
@@ -138,15 +139,21 @@ class STFPMEvaluator:
             y_true = (gt_masks > 0.5).int()
         
         pixel_auc = roc_auc_score(y_true.flatten(), pred_masks.flatten())
-
-        f1_score = compute_pixel_f1(y_true, y_pred)
-
+        pixel_f1_score = compute_pixel_f1(y_true, y_pred)
         pixel_pr = compute_pixel_pr(pred_masks, y_true)
-
         pixel_pro = compute_pixel_pro(pred_masks, y_true)
 
-        print(f"Pixel AUC = {pixel_auc:.4f}, Pixel-level F1 score = {f1_score:.4f}, Pixel-level PRO = {pixel_pro:.4f}, Pixel-level PR = {pixel_pr:.4f}")
+        # ---------------- Image-level metrics ----------------
+        image_labels = (np.sum(gt_masks, axis=(1, 2)) > 0).astype(int)
+        image_scores = np.max(pred_masks.reshape(pred_masks.shape[0], -1), axis=1) #max across the predicted heatmap
+        image_auc = roc_auc_score(image_labels, image_scores)
+        image_f1_max, best_thresh = compute_image_f1(image_labels, image_scores)
 
+        #predict labels using the best threshold
+        image_preds = (image_scores >= best_thresh).astype(int)
 
-    
+        print(f"Pixel AUC = {pixel_auc:.4f}, Pixel F1 = {pixel_f1_score:.4f}, "
+              f"Pixel PRO = {pixel_pro:.4f}, Pixel PR = {pixel_pr:.4f}")
+        print(f"Image AUC = {image_auc:.4f}, Image F1-max = {image_f1_max:.4f} (at threshold = {best_thresh:.4f})")
 
+        return image_auc, image_f1_max, image_preds
