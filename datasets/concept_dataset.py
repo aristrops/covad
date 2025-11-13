@@ -22,9 +22,9 @@ class ConceptDataset(Dataset):
         use_attr: bool = True,
         load_mask: bool = False,
         n_class_attr: int = 2,
-        anomaly_ratio: float = 1.0,
         random_state: int = 42,
         contaminate: bool = False,
+        subsample_anomalies: bool = False,
         n_per_type: int = 0,
         original_df: pd.DataFrame = None,
     ) -> None:
@@ -37,7 +37,7 @@ class ConceptDataset(Dataset):
         self.use_attr = use_attr
         self.load_mask = load_mask
         self.n_class_attr = n_class_attr
-        self.anomaly_ratio = anomaly_ratio
+        self.subsample_anomalies = subsample_anomalies
         self.random_state = random_state
         self.n_per_type = n_per_type
         self.df = dataframe[dataframe["split"] == split].reset_index(drop=True)
@@ -50,8 +50,8 @@ class ConceptDataset(Dataset):
                 random_state=random_state,
             )
 
-        if split == "train" and anomaly_ratio < 1.0:
-            self.df = self.subsample_anomalies(self.df, anomaly_ratio, random_state)
+        if split == "train" and self.subsample_anomalies:
+            self.df = self._subsample_anomalies(self.df, random_state)
 
         if self.multiclass:
             self.num_classes = self.df["category_index"].nunique()
@@ -130,7 +130,7 @@ class ConceptDataset(Dataset):
         else:
             self.gemini_logo_mask = None
 
-    def subsample_anomalies(self, df, anomaly_ratio, random_state):
+    def _subsample_anomalies(self, df, random_state):
         normal_df = df[df["label_index"] == 0]
         anomalous_df = df[df["label_index"] == 1]
 
@@ -140,13 +140,17 @@ class ConceptDataset(Dataset):
         subsampled_anomalies = anomalous_df.groupby(
             "anomaly_type", group_keys=False
         ).apply(
-            lambda x: x.sample(frac=min(anomaly_ratio, 1.0), random_state=random_state)
+            lambda x: x.sample(n=min(self.n_per_type, len(x)), random_state=random_state)
         )
 
         new_df = (
             pd.concat([normal_df, subsampled_anomalies], axis=0)
             .sample(frac=1.0, random_state=random_state)
             .reset_index(drop=True)
+        )
+
+        print(
+            f"Reduced training set: kept only {self.n_per_type} anomalous images per defect type."
         )
 
         return new_df
@@ -178,7 +182,7 @@ class ConceptDataset(Dataset):
         )
 
         print(
-            f"✅ Contaminated training set: added {len(contamination_df)} original anomaly images."
+            f"Contaminated training set: added {len(contamination_df)} original anomaly images."
         )
         return combined_df
 
