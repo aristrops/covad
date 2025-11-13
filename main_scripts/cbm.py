@@ -12,8 +12,8 @@ from models.full_models import joint_model, standard_model, concepts_model, main
 from trainers.trainer_cbm import CBMTrainer
 from evaluators.evaluator_cbm import CBMEvaluator
 
-def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False, anomaly_ratio = 1.0, contaminate = False, n_per_type = 0, original_df = None):
-    return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass, anomaly_ratio=anomaly_ratio, contaminate=contaminate, n_per_type=n_per_type, original_df=original_df)
+def load_dataset(df, split, use_attr = True, load_image = True, multiclass = False, anomaly_ratio = 1.0, contaminate = False, n_per_type = 0, subsample_anomalies = False, original_df = None, random_state = 42):
+    return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass, random_state=random_state, contaminate=contaminate, subsample_anomalies = subsample_anomalies, n_per_type=n_per_type, original_df=original_df)
 
 def make_dataloader(dataset, batch_size, shuffle = True):
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
@@ -21,9 +21,10 @@ def make_dataloader(dataset, batch_size, shuffle = True):
 def train_model(category: str, 
                 dataframe_path: str,
                 dataframe_path_original: str,
-                anomaly_ratio: float,
+                subsample_anomalies: bool,
                 contaminate: bool, #add some original images to the training set of generated anomalies
                 n_per_type: int, #number of original images per defect to add
+                anomaly_ratio: float,
                 model_type: str, 
                 save_dir: str,
                 device: torch.device, 
@@ -39,7 +40,8 @@ def train_model(category: str,
                 freeze_parameters: bool = False, 
                 model_path: str = None,
                 save_path_new_df: str = None,
-                use_gen_anomalies: bool = False):
+                use_gen_anomalies: bool = False,
+                seed: int = 42):
     
     def init_optimizer(params):
         if optimizer == "adam":
@@ -51,10 +53,12 @@ def train_model(category: str,
 
     #base directory
     if use_gen_anomalies and contaminate:
-        sub_dir = "gen_anomalies_weakly_sup"
+        sub_dir = f"gen_anomalies_weakly_sup_{n_per_type}"
     elif use_gen_anomalies and not contaminate:
         sub_dir = "gen_anomalies"
-    elif not use_gen_anomalies:
+    elif not use_gen_anomalies and subsample_anomalies:
+        sub_dir = f"original_anomalies_weakly_sup_{n_per_type}"
+    elif not use_gen_anomalies and not subsample_anomalies:
         sub_dir = "original_anomalies"
     save_dir = os.path.join(save_dir, sub_dir, model_type)
     os.makedirs(save_dir, exist_ok=True)
@@ -70,14 +74,16 @@ def train_model(category: str,
     elif model_type in ["sequential", "independent"]:
         save_path = os.path.join(save_dir, "main", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
+    
+    print(f"\nTraining {model_type} model for {category} category...")
 
     dataframe = pd.read_csv(dataframe_path)
     dataframe_original = pd.read_csv(dataframe_path_original) if contaminate else None
 
     state_dict = torch.load(model_path) if model_path else None
 
-    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass, anomaly_ratio=anomaly_ratio, contaminate = contaminate, n_per_type=n_per_type, original_df = dataframe_original)
-    val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts, multiclass=multiclass)
+    train_dataset = load_dataset(dataframe, "train", use_attr=use_concepts, multiclass=multiclass, contaminate = contaminate, n_per_type=n_per_type, subsample_anomalies=subsample_anomalies, original_df = dataframe_original, random_state=seed)
+    val_dataset = load_dataset(dataframe, "val", use_attr=use_concepts, multiclass=multiclass, random_state=seed)
 
     train_dataloader = make_dataloader(train_dataset, batch_size)
     val_dataloader = make_dataloader(val_dataset, batch_size, shuffle = False)
@@ -88,8 +94,8 @@ def train_model(category: str,
     num_attr = len(train_dataset.attr_cols) if use_concepts else None
 
     if model_type == "independent":
-        train_dataset_no_img = load_dataset(dataframe, "train", load_image=False, anomaly_ratio=anomaly_ratio)
-        val_dataset_no_img = load_dataset(dataframe, "val", load_image=False)
+        train_dataset_no_img = load_dataset(dataframe, "train", load_image=False, contaminate=contaminate, n_per_type=n_per_type, subsample_anomalies=subsample_anomalies, original_df=dataframe_original, random_state=seed)
+        val_dataset_no_img = load_dataset(dataframe, "val", load_image=False, random_state=seed)
 
         train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
         val_dataloader_no_img = make_dataloader(val_dataset_no_img, batch_size)
@@ -99,7 +105,6 @@ def train_model(category: str,
 
     if not multiclass:
         imbalance_ratio, contamination_ratio = train_dataset.find_class_imbalance("main") 
-        print(f"\nKeeping {anomaly_ratio*100:.0f}% of anomalous images")
         print("Imbalance Ratio (negatives per positive) in training set:", imbalance_ratio)
         print("Contamination ratio in training set:", contamination_ratio)
     else:
@@ -108,8 +113,6 @@ def train_model(category: str,
     imbalance_ratio_attr = None
     if use_concepts:
         imbalance_ratio_attr = train_dataset.find_class_imbalance("attributes")
-
-    print(f"\nTraining {model_type} model for {category} category...")
 
     if model_type == "joint":
         model = joint_model(num_attr=num_attr, expand_dim=expand_dim, use_relu = True, use_sigmoid=False, 
@@ -159,8 +162,8 @@ def train_model(category: str,
             #generate concept logits
             dataframe_new = generate_concept_logits(concept_model, dataframe, save_path = save_path_new_df, device = device)
 
-            train_dataset_no_img = load_dataset(dataframe_new, "train", load_image=False, anomaly_ratio=anomaly_ratio)
-            val_dataset_no_img = load_dataset(dataframe_new, "val", load_image=False)
+            train_dataset_no_img = load_dataset(dataframe_new, "train", load_image=False, contaminate=contaminate, n_per_type=n_per_type, subsample_anomalies=subsample_anomalies, original_df=dataframe_original, random_state=seed)
+            val_dataset_no_img = load_dataset(dataframe_new, "val", load_image=False, random_state=seed)
 
             train_dataloader_no_img = make_dataloader(train_dataset_no_img, batch_size)
             val_dataloader_no_img = make_dataloader(val_dataset_no_img, batch_size)
@@ -176,9 +179,11 @@ def train_model(category: str,
 
 
 def test_model(category: str,
-               dataframe_path: str, 
-               anomaly_ratio: float,
+               dataframe_path: str,
+               subsample_anomalies: bool, 
                contaminate: bool,
+               n_per_type: int,               
+               anomaly_ratio: float,
                model_type: str, 
                save_dir: str,
                device: torch.device, 
@@ -192,10 +197,12 @@ def test_model(category: str,
 
     #base directory
     if use_gen_anomalies and contaminate:
-        sub_dir = "gen_anomalies_weakly_sup"
+        sub_dir = f"gen_anomalies_weakly_sup_{n_per_type}"
     elif use_gen_anomalies and not contaminate:
         sub_dir = "gen_anomalies"
-    elif not use_gen_anomalies:
+    elif not use_gen_anomalies and subsample_anomalies:
+        sub_dir = f"original_anomalies_weakly_sup_{n_per_type}"
+    elif not use_gen_anomalies and not subsample_anomalies:
         sub_dir = "original_anomalies"
     save_dir = os.path.join(save_dir, sub_dir, model_type)
     os.makedirs(save_dir, exist_ok=True)
@@ -211,13 +218,15 @@ def test_model(category: str,
     elif model_type in ["sequential", "independent"]:
         save_path = os.path.join(save_dir, "main", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
         save_path_concepts = os.path.join(save_dir, "concepts", f"{backbone}_{anomaly_ratio}ratio_{expand_dim}MLP_automated.pth")
-        state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
+    
+    print(f"\nTesting {model_type} model for {category} category...")
 
     dataframe = pd.read_csv(dataframe_path)
 
     print(f"Loading state dict from {save_path}")
 
     state_dict = torch.load(save_path, weights_only=False) if save_path else None
+    state_dict_concepts = torch.load(save_path_concepts) if save_path_concepts else None
 
     test_dataset = load_dataset(dataframe, "test", use_attr=use_concepts)
     num_attr = len(test_dataset.attr_cols) if use_concepts else None
@@ -268,8 +277,6 @@ def test_model(category: str,
 
     if mode == "eval":
         print(f"\nNumber of test images: {len(test_dataset)}")
-        print(f"\nTesting {model_type} model for {category} category...")
-        print(f"Model was trained keeping {anomaly_ratio*100:.0f}% of anomalous images")
 
     elif mode == "inference":
         print(f"\nPerforming inference on image stored in {image_path}...")
@@ -336,14 +343,15 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--mode", type=str, help="Whether to train, test or perform inference on one image")
-    parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
+    parser.add_argument("--dataframe_dir", type=str, help="Path to dataframe")
     parser.add_argument("--dataframe_path_original", type=str, help="Path to original dataframe to add original images")
-    parser.add_argument("--anomaly_ratios", type=float, nargs="+", default=[1.0], help="Percentage of anomalous images to keep")
+    parser.add_argument("--subsample_anomalies", action="store_true", help="Whether to use a reduced number of anomalous images per defect type")
     parser.add_argument("--contaminate", action="store_true", help="Whether to contaminate the generated dataset with some original anomalous samples")
     parser.add_argument("--n_per_type", type=int, default = 0, help="How many original images to add to the generated dataset")
+    parser.add_argument("--anomaly_ratio", type=int, default = 1.0, help="Anomaly ratios to keep in training")
     parser.add_argument("--model_type", type = str, nargs="+", help="Which model to train, e.g. 'independent', 'joint', ...")
     parser.add_argument("--save_dir", type=str, help="Directory to save the models in")
-    parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
+    parser.add_argument("--category", type = str, help="Which category to train/test")
     parser.add_argument("--device", type=str, help="Where to run the script")
     parser.add_argument("--backbone", type = str, default="resnet18", help = "Which pre-trained network to use for concept extraction")
     parser.add_argument("--expand_dim", type=int, default = 0, help="How many neurons to use in FC layers")
@@ -357,7 +365,7 @@ def main():
     parser.add_argument("--freeze_parameters", action="store_true", help="Whether to freeze the parameters of the network for concept prediction")
     parser.add_argument("--model_path", type=str, default = None, help="If specified, loads the state dict of a chosen model")
     parser.add_argument("--save_concepts", action="store_true", help="Whether to save the predicted concepts dataframe")
-    parser.add_argument("--seed", type=int, default=42, help="Execution seed")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42], help="Execution seed")
     parser.add_argument("--image_path", default=None, help="Path of the image to perform inference on")
     parser.add_argument("--use_gen_anomalies", action="store_true", help="Perform training on dataset with generated anomalies")
     parser.add_argument("--gemini_logo_mask_path", default=None, help="Path to the Gemini logo mask to be applied to all images")
@@ -367,16 +375,15 @@ def main():
 
     args = parser.parse_args()
 
-    torch.manual_seed(args.seed)
-    device = torch.device(args.device)
+    for seed in args.seeds:
+        torch.manual_seed(seed)
+        device = torch.device(args.device)
 
-    for model_type in args.model_type:
-        for category in args.categories:
-            for anomaly_ratio in args.anomaly_ratios:                
-                if args.mode == "train":
-                    train_model(category, args.dataframe_path, args.dataframe_path_original, anomaly_ratio, args.contaminate, args.n_per_type, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies)
-                elif args.mode == "eval" or args.mode == "inference":
-                    test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataframe_path, anomaly_ratio, args.contaminate, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies)
+        for model_type in args.model_type:           
+            if args.mode == "train":
+                train_model(args.category, args.dataframe_dir, args.dataframe_path_original, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, seed)
+            elif args.mode == "eval" or args.mode == "inference":
+                test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(args.category, args.dataframe_dir, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies, seed)
 
 
 if __name__ == "__main__":
