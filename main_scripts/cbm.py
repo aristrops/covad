@@ -343,7 +343,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--mode", type=str, help="Whether to train, test or perform inference on one image")
-    parser.add_argument("--dataframe_path", type=str, help="Path to dataframe")
+    parser.add_argument("--dataframe_dir", type=str, help="Path to dataframe")
     parser.add_argument("--dataframe_path_original", type=str, help="Path to original dataframe to add original images")
     parser.add_argument("--subsample_anomalies", action="store_true", help="Whether to use a reduced number of anomalous images per defect type")
     parser.add_argument("--contaminate", action="store_true", help="Whether to contaminate the generated dataset with some original anomalous samples")
@@ -351,7 +351,7 @@ def main():
     parser.add_argument("--anomaly_ratio", type=int, default = 1.0, help="Anomaly ratios to keep in training")
     parser.add_argument("--model_type", type = str, nargs="+", help="Which model to train, e.g. 'independent', 'joint', ...")
     parser.add_argument("--save_dir", type=str, help="Directory to save the models in")
-    parser.add_argument("--categories", type = str, nargs="+", help="Which categories to train/test")
+    parser.add_argument("--category", type = str, help="Which category to train/test")
     parser.add_argument("--device", type=str, help="Where to run the script")
     parser.add_argument("--backbone", type = str, default="resnet18", help = "Which pre-trained network to use for concept extraction")
     parser.add_argument("--expand_dim", type=int, default = 0, help="How many neurons to use in FC layers")
@@ -365,7 +365,7 @@ def main():
     parser.add_argument("--freeze_parameters", action="store_true", help="Whether to freeze the parameters of the network for concept prediction")
     parser.add_argument("--model_path", type=str, default = None, help="If specified, loads the state dict of a chosen model")
     parser.add_argument("--save_concepts", action="store_true", help="Whether to save the predicted concepts dataframe")
-    parser.add_argument("--seed", type=int, default=42, help="Execution seed")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42], help="Execution seed")
     parser.add_argument("--image_path", default=None, help="Path of the image to perform inference on")
     parser.add_argument("--use_gen_anomalies", action="store_true", help="Perform training on dataset with generated anomalies")
     parser.add_argument("--gemini_logo_mask_path", default=None, help="Path to the Gemini logo mask to be applied to all images")
@@ -375,15 +375,15 @@ def main():
 
     args = parser.parse_args()
 
-    torch.manual_seed(args.seed)
-    device = torch.device(args.device)
+    for seed in args.seeds:
+        torch.manual_seed(seed)
+        device = torch.device(args.device)
 
-    for model_type in args.model_type:
-        for category in args.categories:            
+        for model_type in args.model_type:           
             if args.mode == "train":
-                train_model(category, args.dataframe_path, args.dataframe_path_original, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, args.seed)
+                train_model(args.category, args.dataframe_dir, args.dataframe_path_original, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.lambda_, args.batch_size, args.optimizer, args.lr, args.epochs, args.use_concepts, args.multiclass, args.freeze_parameters, args.model_path, args.save_concepts, args.use_gen_anomalies, seed)
             elif args.mode == "eval" or args.mode == "inference":
-                test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(category, args.dataframe_path, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies)
+                test_auc_main, test_auc_attr, test_f1_main, test_f1_attr = test_model(args.category, args.dataframe_dir, args.subsample_anomalies, args.contaminate, args.n_per_type, args.anomaly_ratio, model_type, args.save_dir, device, args.backbone, args.expand_dim, args.batch_size, args.use_concepts, args.mode, args.image_path, args.use_gen_anomalies, seed)
 
 
 if __name__ == "__main__":
