@@ -157,6 +157,7 @@ class ExperimentRunner:
         check_interval: float = 30.0,
         gpu_index: int = 0,
         max_parallel_without_monitoring: int = 1,
+        max_parallel_processes: int = 10,
     ):
         """
         Initialize the experiment runner.
@@ -167,11 +168,13 @@ class ExperimentRunner:
             check_interval: How often to check GPU memory (seconds)
             gpu_index: Which GPU to monitor (default: 0)
             max_parallel_without_monitoring: Maximum parallel experiments if GPU monitoring unavailable
+            max_parallel_processes: Maximum number of parallel experiments (hard limit)
         """
         self.output_dir = output_dir
         self.min_free_memory_percent = min_free_memory_percent
         self.check_interval = check_interval
         self.max_parallel_without_monitoring = max_parallel_without_monitoring
+        self.max_parallel_processes = max_parallel_processes
         self.gpu_monitor = GPUMonitor(gpu_index)
         self.running_processes: List[Tuple[subprocess.Popen, str, Any]] = []
         self.experiment_queue = queue.Queue()
@@ -399,13 +402,17 @@ class ExperimentRunner:
                 print(
                     f"\nGPU Memory: {used_gb:.2f}GB / {total_gb:.2f}GB used ({100-free_percent:.1f}% used, {free_percent:.1f}% free)"
                 )
-                print(f"Running experiments: {len(self.running_processes)}")
+                print(f"Running experiments: {len(self.running_processes)} / {self.max_parallel_processes} max")
                 print(f"Queued experiments: {self.experiment_queue.qsize()}")
 
                 # Determine if we can start a new experiment
                 can_start = False
 
-                if self.gpu_monitor.available:
+                # First check: hard limit on number of processes
+                if len(self.running_processes) >= self.max_parallel_processes:
+                    can_start = False
+                    print(f"Waiting: at maximum parallel process limit ({self.max_parallel_processes})...")
+                elif self.gpu_monitor.available:
                     # Use GPU memory monitoring
                     can_start = self.gpu_monitor.has_sufficient_memory(
                         self.min_free_memory_percent
@@ -504,10 +511,11 @@ def main():
 
     runner = ExperimentRunner(
         output_dir="output/parallel_experiments",
-        min_free_memory_percent=5.0,  # Wait until 20% GPU memory is free
+        min_free_memory_percent=5.0,  # Wait until 5% GPU memory is free
         check_interval=2.0,  # Check every 2 seconds
         gpu_index=0,  # Use first GPU
-        max_parallel_without_monitoring=20,  # Safety: only 1 experiment at a time if no GPU monitoring
+        max_parallel_without_monitoring=1,  # Safety: only 1 experiment at a time if no GPU monitoring
+        max_parallel_processes=10  # Hard limit: maximum 10 experiments running simultaneously
     )
 
     # Generate all experiment combinations
