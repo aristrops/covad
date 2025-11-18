@@ -1,12 +1,12 @@
 python -m main_scripts.cbm \
-    --dataframe_path cbm_data/mvtec/hazelnut_dataset_automated.csv \
-    --model_type sequential \
-    --save_dir cbm_models/mvtec/hazelnut_models \
-    --category hazelnut \
+    --dataframe_path cbm_data/realiad/audiojack_dataset_automated.csv \
+    --model_type joint \
+    --save_dir cbm_models/realiad/audiojack_models \
+    --category audiojack \
     --device cpu \
     --backbone mobilenet_v2 \
-    --model_path cbm_models/backbones/fine-tuned-mobilenet.pth \
+    --model_path cbm_models/backbones/fine-tuned-mobilenet-realiad.pth \
     --use_concepts \
     --gemini_logo_mask_path datasets/gemini_logo_mask.png \
-    --mode eval \
+    --mode train \
     --lambda_ 0.55
