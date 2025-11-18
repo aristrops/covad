@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 from scipy.stats import chi2_contingency
 
 from datasets.mvtec_dataset import MVTecDataset
+from datasets.realiad_dataset import RealIadDataset
 
 client = Client(host="http://localhost:6000")
 
@@ -96,27 +97,34 @@ def second_vlm_query(category, model_name, sample, concept_list):
 
 
 #create concept list
-def create_concept_list(dataset_path: str,
+def create_concept_list(dataset: str,
+                        dataset_path: str,
                         category: str,
                         model_name: str,
                         use_gen_anomalies: bool = False):
 
     concepts = set()
 
-    train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
-    train_dataset.load_dataset()    
+    if dataset == "mvtec":
+        train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
+        train_dataset.load_dataset()    
 
-    test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
-    test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
+        test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
+        test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
 
-    full_dataset = pd.concat([train_dataset.samples, test_dataset.samples])
+        full_dataset = pd.concat([train_dataset.samples, test_dataset.samples])
 
-    #extract 5% of the images
-    subset = full_dataset.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
+        #extract 5% of the images
+        subset = full_dataset.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
+    
+    elif dataset == "realiad":
+        full_dataset = RealIadDataset(root = dataset_path, category=category)
+        full_dataset.load_dataset()
+        subset = full_dataset.samples.groupby("label", group_keys=False).sample(frac = 0.05, random_state = 42)
 
     print(f"Number of images to analyze: {len(subset)}")
 
-    for i in range(len(subset)):
+    for i in tqdm(range(len(subset))):
         sample = subset.iloc[i]
         concept_json = first_vlm_query(category, model_name, sample)
         concepts.update(c.lower() for c in concept_json)
@@ -125,9 +133,9 @@ def create_concept_list(dataset_path: str,
     print(f"Original number of concepts for {category} category:", len(concepts))
     
     if use_gen_anomalies:
-        output_dir = f"concept_lists/original/gen_anomalies"
+        output_dir = f"concept_lists/original/{dataset}gen_anomalies"
     else:
-        output_dir = f"concept_lists/original"
+        output_dir = f"concept_lists/original/{dataset}"
     os.makedirs(output_dir, exist_ok=True)
 
     with open(os.path.join(output_dir, f"{category}_concepts.json"), "w") as f:
@@ -239,19 +247,27 @@ def compute_class_similarity(concepts, category, classes = ["anomalous", "normal
 
 #create annotated dataset
 def create_final_dataset(dataset_path: str,
+                         dataset: str,
                          category: str, 
                          final_concepts: list,
                          model_name: str,
                          use_gen_anomalies: bool = False):
+    
     image_concepts = []
+    
+    if dataset == "mvtec":
+        train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
+        train_dataset.load_dataset()
 
-    train_dataset = MVTecDataset(root = dataset_path, category = category, split = "train")
-    train_dataset.load_dataset()
+        test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
+        test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
 
-    test_dataset = MVTecDataset(root = dataset_path, category = category, split = "test")
-    test_dataset.load_dataset(use_gen_anomalies=use_gen_anomalies)
-
-    samples = pd.concat([train_dataset.samples, test_dataset.samples])
+        samples = pd.concat([train_dataset.samples, test_dataset.samples])
+    
+    elif dataset == "realiad":
+        dataset = RealIadDataset(root = dataset_path, category=category)
+        dataset.load_dataset()
+        samples = dataset.samples
     
     for i in tqdm(range(len(samples))):
         sample = samples.iloc[i]

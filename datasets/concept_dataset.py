@@ -62,7 +62,9 @@ class ConceptDataset(Dataset):
             "mask_path",
             "split",
             "anomaly_type",
+            "view"
         ]
+
         self.attr_cols = [col for col in self.df.columns if col not in exclude_cols]
 
         pre_transform = transforms.Compose(
@@ -124,7 +126,7 @@ class ConceptDataset(Dataset):
                     f"Gemini logo mask file not found: {self.mask_gemini_logo_path}"
                 )
             # load the image with PIL
-            logo_mask_img = Image.open(self.mask_gemini_logo_path).convert("L")
+            logo_mask_img = Image.open(self.mask_gemini_logo_path).convert("L") 
             # transform the mask
             self.gemini_logo_mask = self.transform_mask(logo_mask_img)
         else:

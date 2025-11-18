@@ -4,7 +4,8 @@ import argparse
 
 from utils import dataset_utils
 
-def create_concept_dataset(dataset_path: str,
+def create_concept_dataset(dataset: str,
+                           dataset_path: str,
                            category: str,
                            model_name: str,
                            save_path: str, 
@@ -13,7 +14,7 @@ def create_concept_dataset(dataset_path: str,
     #step 1: create concept list
     print(f"\nCreating concept dataset for {category} category...")
     print("\nQuerying the VLM to extract the concept list...")
-    concept_list = dataset_utils.create_concept_list(dataset_path, category, model_name, use_gen_anomalies=use_gen_anomalies)
+    concept_list = dataset_utils.create_concept_list(dataset, dataset_path, category, model_name, use_gen_anomalies=use_gen_anomalies)
 
     #step 2: aggregate and filter concept list
     print("\nReducing the dimensionality of the concept set...")
@@ -24,9 +25,9 @@ def create_concept_dataset(dataset_path: str,
     print(f"Final number of concepts kept for {category} category: {len(final_concepts)}")
 
     if use_gen_anomalies:
-        output_dir_filtered = f"concept_lists/filtered//gen_anomalies"
+        output_dir_filtered = f"concept_lists/filtered/{dataset}/gen_anomalies"
     else:
-        output_dir_filtered = f"concept_lists/filtered"
+        output_dir_filtered = f"concept_lists/{dataset}/filtered"
     os.makedirs(output_dir_filtered, exist_ok=True)
 
     with open(os.path.join(output_dir_filtered, f"{category}_concepts.json"), "w") as f:
@@ -34,7 +35,7 @@ def create_concept_dataset(dataset_path: str,
     
     #step 3: create final dataset
     print("\nAutomatically annotating the dataset...")
-    final_df = dataset_utils.create_final_dataset(dataset_path, category, final_concepts, model_name, use_gen_anomalies = use_gen_anomalies)        
+    final_df = dataset_utils.create_final_dataset(dataset_path, dataset, category, final_concepts, model_name, use_gen_anomalies = use_gen_anomalies)        
 
     #step 4: split the dataset into train, test and validation
     print("\nSplitting the dataset into train, test and validation...")
@@ -59,6 +60,7 @@ def create_concept_dataset(dataset_path: str,
 def main():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--dataset", type=str, help="Type of dataset to use")
     parser.add_argument("--dataset_path", type=str, help="Path to dataset")
     parser.add_argument("--categories", type = str, nargs="+", help="Which categories to annotate")
     parser.add_argument("--model_name", type=str, help="Which VLM to use")
