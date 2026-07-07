@@ -166,6 +166,111 @@ class FC(nn.Module):
         return x
 
 
+class ConceptNetFromDiff(nn.Module):
+    """Truncated MobileNetV2 that predicts concepts from the first STFPM
+    teacher-student feature difference.
+
+    The difference at mobilenet block 3 has 24 channels, which is exactly the
+    input expected by mobilenet ``features[4]``. We therefore reuse
+    ``features[start:]`` (pretrained, trainable) as the concept sub-network,
+    followed by the same pool + per-concept FC heads used by ``BackboneModel``.
+    """
+
+    def __init__(self, num_attr: int, expand_dim: int = 0, start: int = 4,
+                 pretrained: bool = True):
+        super(ConceptNetFromDiff, self).__init__()
+
+        base_model = models.mobilenet_v2(
+            weights=models.MobileNet_V2_Weights.DEFAULT if pretrained else None
+        )
+        feature_dim = base_model.last_channel  # 1280
+        # truncated conv stack; consumes the 24-channel diff at block-3 resolution
+        self.features = nn.Sequential(*list(base_model.features)[start:])
+        self.pool = nn.AvgPool2d(kernel_size=7)
+
+        self.fc_layers = nn.ModuleList()
+        for _ in range(num_attr):
+            self.fc_layers.append(FC(feature_dim, 1, expand_dim))
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.pool(x)
+        x = torch.flatten(x, 1)
+        return [fc(x) for fc in self.fc_layers]
+
+
+class UnifiedModel(nn.Module):
+    """Single branch producing the STFPM heatmap, the concepts, and the final
+    anomaly-score prediction from the concepts.
+
+    Same structure as the original joint CBM (concept bottleneck -> MLP head),
+    except the concept classifier consumes the first STFPM teacher-student
+    feature difference instead of raw-image features.
+
+    forward returns ``(t_features, s_features, concept_logits, main_logit)``:
+    - ``t_features``/``s_features``: raw teacher/student feature lists (heatmap +
+      STFPM loss),
+    - ``concept_logits``: per-concept logits from the first normalized diff,
+    - ``main_logit``: image-level anomaly logit from the concept bottleneck.
+    """
+
+    def __init__(self, num_attr: int, expand_dim: int = 0,
+                 backbone: str = "mobilenet_v2", concept_layer_idx: int = 0,
+                 use_relu: bool = True, use_sigmoid: bool = False):
+        super(UnifiedModel, self).__init__()
+        if backbone != "mobilenet_v2":
+            raise ValueError("UnifiedModel only supports mobilenet_v2")
+
+        self.concept_layer_idx = concept_layer_idx
+        self.use_relu = use_relu
+        self.use_sigmoid = use_sigmoid
+
+        self.teacher = BackboneModelFeatures(pretrained=True, backbone=backbone)
+        self.student = BackboneModelFeatures(pretrained=False, backbone=backbone)
+
+        # freeze teacher
+        self.teacher.eval()
+        for p in self.teacher.parameters():
+            p.requires_grad = False
+
+        self.concept_net = ConceptNetFromDiff(num_attr=num_attr, expand_dim=expand_dim)
+        # main-task head over the concept bottleneck (same as joint CBM)
+        self.main_model = MLP(input_dim=num_attr, expand_dim=expand_dim)
+
+    def load_teacher(self, state_dict):
+        """Load teacher feature_extractor weights (strict=False)."""
+        self.teacher.load_state_dict(state_dict, strict=False)
+        self.teacher.eval()
+        for p in self.teacher.parameters():
+            p.requires_grad = False
+
+    def train(self, mode: bool = True):
+        super(UnifiedModel, self).train(mode)
+        self.teacher.eval()  # teacher always frozen/eval
+        return self
+
+    def forward(self, x):
+        with torch.no_grad():
+            t_features = self.teacher(x)
+        s_features = self.student(x)
+
+        i = self.concept_layer_idx
+        diff = torch.nn.functional.normalize(t_features[i], dim=1) - \
+            torch.nn.functional.normalize(s_features[i], dim=1)
+        concept_logits = self.concept_net(diff)
+
+        # concept bottleneck -> main task head (same as joint CBM End2EndModel)
+        if self.use_relu:
+            attr_outputs = [torch.relu(o) for o in concept_logits]
+        elif self.use_sigmoid:
+            attr_outputs = [torch.sigmoid(o) for o in concept_logits]
+        else:
+            attr_outputs = concept_logits
+        main_logit = self.main_model(torch.cat(attr_outputs, dim=1))
+
+        return t_features, s_features, concept_logits, main_logit
+
+
 # feature extractor model for STFPM
 class BackboneModelFeatures(nn.Module):
     def __init__(self, pretrained: bool = True, backbone: str = "resnet18"):
