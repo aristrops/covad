@@ -327,9 +327,9 @@ def evaluate_combined_performance(category: str,
     thr_cbm,   f1_cbm_val   = best_f1_threshold(scores_cbm_val_rank,   y_val)
     thr_stfpm, f1_stfpm_val = best_f1_threshold(scores_stfpm_val_rank, y_val)
  
-    print(f"\n── Max-F1 thresholds (calibrated on VAL) ────────────────────")
-    print(f"  CBM   threshold : {thr_cbm:.4f}  (val F1 = {f1_cbm_val:.4f})")
-    print(f"  STFPM threshold : {thr_stfpm:.4f}  (val F1 = {f1_stfpm_val:.4f})")
+    # print(f"\n── Max-F1 thresholds (calibrated on VAL) ────────────────────")
+    # print(f"  CBM   threshold : {thr_cbm:.4f}  (val F1 = {f1_cbm_val:.4f})")
+    # print(f"  STFPM threshold : {thr_stfpm:.4f}  (val F1 = {f1_stfpm_val:.4f})")
  
     # Binary predictions on TEST using VAL-calibrated thresholds
     pred_cbm_test   = (scores_cbm_rank   >= thr_cbm).astype(int)
