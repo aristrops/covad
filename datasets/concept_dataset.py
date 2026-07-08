@@ -221,6 +221,9 @@ class ConceptDataset(Dataset):
 
         if self.use_attr:
             attr_label = torch.Tensor(row[self.attr_cols].values.astype(np.float32))
+            if self.load_mask:
+                # unified eval: image + concepts + label + pixel mask in one pass
+                return image, attr_label, label, mask
             if self.load_image:
                 return image, attr_label, label
             return attr_label, label

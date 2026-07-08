@@ -37,10 +37,12 @@ def train_model(category: str,
 
     normal_images = dataframe[(dataframe["split"] == "train") & (dataframe["label_index"] == 0)]
     train_dataset = ConceptDataset(normal_images, split="train", use_attr=False)
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True,
+                                                   num_workers=8, pin_memory=True, persistent_workers=True)
 
     val_dataset = ConceptDataset(dataframe, split = "val", use_attr=False, load_mask=True)
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size = batch_size, shuffle = False)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size = batch_size, shuffle = False,
+                                                 num_workers=8, pin_memory=True, persistent_workers=True)
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
@@ -85,7 +87,8 @@ def test_model(category: str,
     student_model.load_state_dict(state_dict_student, strict = False)
 
     test_dataset = ConceptDataset(dataframe, split = "test", use_attr=False, load_mask=True)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = False,
+                                                  num_workers=8, pin_memory=True)
 
     evaluator = STFPMEvaluator(teacher_model, student_model, test_dataloader, device)
 
