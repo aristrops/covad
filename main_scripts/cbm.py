@@ -16,7 +16,8 @@ def load_dataset(df, split, use_attr = True, load_image = True, multiclass = Fal
     return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image, multiclass=multiclass, random_state=random_state, contaminate=contaminate, subsample_anomalies = subsample_anomalies, n_per_type=n_per_type, original_df=original_df)
 
 def make_dataloader(dataset, batch_size, shuffle = True):
-    return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
+                                       num_workers=8, pin_memory=True, persistent_workers=True)
 
 def train_model(category: str, 
                 dataframe_path: str,

@@ -4,9 +4,9 @@ import torch
 import pandas as pd
 
 from datasets.concept_dataset import ConceptDataset
-from models.full_models import unified_model
-from trainers.trainer_unified import UnifiedTrainer
-from evaluators.evaluator_unified import UnifiedEvaluator
+from main_unified.models_unified import unified_model
+from main_unified.trainer_unified import UnifiedTrainer
+from main_unified.evaluator_unified import UnifiedEvaluator
 
 
 def make_dataloader(dataset, batch_size, shuffle=True):
@@ -55,7 +55,8 @@ def update_results_table(results_path, row):
 
 
 def train_model(category, dataframe_path, teacher_path, save_path, device, backbone,
-                expand_dim, lambda_, batch_size, optimizer, lr, epochs, seed):
+                expand_dim, lambda_, batch_size, optimizer, lr, epochs, seed,
+                inject_diffs=False, mask_student=False):
 
     def init_optimizer(params):
         if optimizer == "adam":
@@ -82,7 +83,7 @@ def train_model(category, dataframe_path, teacher_path, save_path, device, backb
           f"{len(train_dataset)} train / {len(val_dataset)} val images, {num_attr} concepts")
 
     model = unified_model(num_attr=num_attr, expand_dim=expand_dim, backbone=backbone,
-                          teacher_path=teacher_path, mode="train")
+                          teacher_path=teacher_path, mode="train", inject_diffs=inject_diffs)
     model.to(device)
 
     # only student + concept net + main head are trainable (teacher frozen)
@@ -91,12 +92,13 @@ def train_model(category, dataframe_path, teacher_path, save_path, device, backb
 
     trainer = UnifiedTrainer(model, num_attr, train_dataloader, val_dataloader, opt, scheduler,
                              device, num_epochs=epochs, lambda_=lambda_,
-                             weight_attr=weight_attr, weight_main=weight_main, save_path=save_path)
+                             weight_attr=weight_attr, weight_main=weight_main,
+                             mask_student=mask_student, save_path=save_path)
     trainer.train()
 
 
 def eval_model(category, dataframe_path, save_path, device, backbone, expand_dim, batch_size,
-               dataset="mvtec", results_path=None):
+               dataset="mvtec", results_path=None, inject_diffs=False):
     dataframe = pd.read_csv(dataframe_path)
 
     test_dataset = ConceptDataset(dataframe, split="test", use_attr=True, load_mask=True)
@@ -108,7 +110,7 @@ def eval_model(category, dataframe_path, save_path, device, backbone, expand_dim
 
     state_dict = torch.load(save_path, map_location="cpu")
     model = unified_model(num_attr=num_attr, expand_dim=expand_dim, backbone=backbone,
-                          model_state_dict=state_dict, mode="test")
+                          model_state_dict=state_dict, mode="test", inject_diffs=inject_diffs)
     model.to(device)
 
     evaluator = UnifiedEvaluator(model, num_attr, attr_cols, test_dataloader, device)
@@ -135,6 +137,10 @@ def main():
     parser.add_argument("--lambda_", type=float, default=0.55,
                         help="concept-loss weight (joint-CBM lambda)")
     parser.add_argument("--dataset", type=str, default="mvtec", help="mvtec or visa (for results table)")
+    parser.add_argument("--inject_diffs", action="store_true",
+                        help="unified++: also add deeper feature diffs into the concept net")
+    parser.add_argument("--mask_student", action="store_true",
+                        help="ablation: block anomalous samples from updating the student backbone")
     parser.add_argument("--results_path", type=str, default=None,
                         help="CSV path; an updating markdown table is written alongside")
     parser.add_argument("--batch_size", type=int, default=8)
@@ -151,11 +157,12 @@ def main():
     if args.mode == "train":
         train_model(args.category, args.dataframe_path, args.teacher_path, args.save_path,
                     device, args.backbone, args.expand_dim, args.lambda_,
-                    args.batch_size, args.optimizer, args.lr, args.epochs, args.seed)
+                    args.batch_size, args.optimizer, args.lr, args.epochs, args.seed,
+                    inject_diffs=args.inject_diffs, mask_student=args.mask_student)
     elif args.mode == "eval":
         eval_model(args.category, args.dataframe_path, args.save_path, device,
                    args.backbone, args.expand_dim, args.batch_size,
-                   args.dataset, args.results_path)
+                   args.dataset, args.results_path, inject_diffs=args.inject_diffs)
 
 
 if __name__ == "__main__":

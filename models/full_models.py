@@ -1,46 +1,4 @@
-import os
-import torch
-
-from models.model_backbones import BackboneModel, MLP, End2EndModel, UnifiedModel
-
-
-def unified_model(num_attr, expand_dim=0, backbone="mobilenet_v2",
-                  teacher_path=None, model_state_dict=None, mode="train"):
-    """Build the unified STFPM+concept model.
-
-    train: optionally load teacher feature_extractor weights from ``teacher_path``
-    (falls back to ImageNet weights if the file is missing / keys mismatch).
-    test: load the full trained ``model_state_dict``.
-    """
-    model = UnifiedModel(num_attr=num_attr, expand_dim=expand_dim, backbone=backbone)
-
-    if mode == "train":
-        if teacher_path is not None and os.path.exists(teacher_path):
-            raw = torch.load(teacher_path, map_location="cpu")
-            # keep only feature_extractor.* keys (BackboneModel / BackboneModelFeatures layout)
-            teacher_sd = {k: v for k, v in raw.items() if k.startswith("feature_extractor.")}
-            if not teacher_sd:
-                # maybe wrapped under first_model.*
-                teacher_sd = {
-                    k.replace("first_model.", ""): v
-                    for k, v in raw.items()
-                    if k.startswith("first_model.feature_extractor.")
-                }
-            if teacher_sd:
-                model.load_teacher(teacher_sd)
-                print(f"Loaded fine-tuned teacher feature_extractor from {teacher_path}")
-            else:
-                print(f"No feature_extractor.* keys in {teacher_path}; using ImageNet teacher.")
-        else:
-            print("Using ImageNet-pretrained teacher (no teacher_path provided/found).")
-
-    elif mode == "test":
-        model.load_state_dict(model_state_dict, strict=False)
-
-    return model
-
-
-
+from models.model_backbones import BackboneModel, MLP, End2EndModel
 
 def joint_model(num_attr, expand_dim, freeze_parameters, use_relu = False, use_sigmoid = False, backbone = "resnet18", model_state_dict = None, mode = "train", concept_intervention = False):
     model_1 = BackboneModel(num_attr=num_attr, num_classes = 1, freeze_parameters=freeze_parameters, expand_dim=expand_dim, bottleneck=True, backbone = backbone)

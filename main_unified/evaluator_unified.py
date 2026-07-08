@@ -67,11 +67,17 @@ class UnifiedEvaluator:
         gt_masks = np.concatenate(gt_masks, axis=0)
 
         # ---------------- Pixel-level metrics ----------------
+        # Binarize masks as > 0 (any positive). MVTec encodes anomaly as 255 (->1.0),
+        # but VisA encodes it as a small label value (e.g. 5 -> ~0.02), so a 0.5
+        # threshold would erase every VisA positive pixel and make P-AUC nan.
         y_pred = loss_map
         pred_masks = min_max_norm(y_pred)
-        y_true = (gt_masks > 0.5).astype(int)
+        y_true = (gt_masks > 0).astype(int)
 
-        pixel_auc = roc_auc_score(y_true.flatten(), pred_masks.flatten())
+        if len(np.unique(y_true)) < 2:
+            pixel_auc = float("nan")  # no positive pixels at all (e.g. no GT masks)
+        else:
+            pixel_auc = roc_auc_score(y_true.flatten(), pred_masks.flatten())
         pixel_f1 = compute_pixel_f1(y_true, y_pred)
         pixel_pro = compute_pixel_pro(pred_masks, y_true)
 

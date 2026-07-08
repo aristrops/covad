@@ -19,7 +19,7 @@ from scipy.ndimage import gaussian_filter
 
 import pandas as pd
 from datasets.concept_dataset import ConceptDataset
-from models.full_models import unified_model
+from main_unified.models_unified import unified_model
 
 
 def unnormalize(img, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
@@ -52,6 +52,7 @@ def main():
     parser.add_argument("--backbone", type=str, default="mobilenet_v2")
     parser.add_argument("--save_dir", type=str, default="plots/unified")
     parser.add_argument("--n", type=int, default=6, help="number of anomalous images")
+    parser.add_argument("--inject_diffs", action="store_true", help="unified++ checkpoint")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -62,7 +63,8 @@ def main():
     num_attr = len(dataset.attr_cols)
     state_dict = torch.load(args.model_path, map_location="cpu")
     model = unified_model(num_attr=num_attr, backbone=args.backbone,
-                          model_state_dict=state_dict, mode="test").to(device)
+                          model_state_dict=state_dict, mode="test",
+                          inject_diffs=args.inject_diffs).to(device)
     model.eval()
 
     # pick anomalous images, spread across anomaly types
@@ -87,7 +89,12 @@ def main():
 
         inp = unnormalize(image).permute(1, 2, 0).numpy()
         inp = np.clip(inp, 0, 1)
-        gt = gaussian_filter(mask.float().numpy().squeeze(), sigma=2)
+        # binarize mask (>0: VisA encodes anomaly as ~5/255) and resize to the image
+        # size so the overlay aligns (masks are stored at original resolution).
+        mask_bin = (mask.numpy().squeeze() > 0).astype(np.float32)
+        mask_r = F.interpolate(torch.tensor(mask_bin)[None, None], size=size,
+                               mode="nearest").squeeze().numpy()
+        gt = gaussian_filter(mask_r, sigma=2)
 
         axs[r, 0].imshow(inp); axs[r, 0].set_title("Input")
         axs[r, 1].imshow(inp); axs[r, 1].imshow(gt, cmap="jet", alpha=0.5); axs[r, 1].set_title("GT mask")

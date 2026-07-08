@@ -27,6 +27,7 @@ class UnifiedTrainer:
                  weight_attr=None,
                  weight_main=None,
                  patience: int = 10,
+                 mask_student: bool = False,
                  save_path: str = None):
 
         self.model = model.to(device)
@@ -39,6 +40,7 @@ class UnifiedTrainer:
         self.num_epochs = num_epochs
         self.lambda_ = lambda_
         self.patience = patience
+        self.mask_student = mask_student  # block anomalous samples from updating student
         self.save_path = save_path
 
         # main-task (anomaly label) criterion, optionally class-weighted
@@ -100,7 +102,11 @@ class UnifiedTrainer:
             concepts = concepts.to(self.device).float()
             labels = labels.to(self.device).float()
 
-            t_features, s_features, concept_logits, main_logit = self.model(images)
+            # unified++masked: gate the student's concept-path gradient so only
+            # normal (label==0) samples can update the student backbone.
+            student_grad_mask = (labels == 0).float() if self.mask_student else None
+            t_features, s_features, concept_logits, main_logit = self.model(
+                images, student_grad_mask=student_grad_mask)
             total, stfpm_loss, main_loss, concept_loss = self.compute_losses(
                 t_features, s_features, concept_logits, main_logit, labels, concepts
             )

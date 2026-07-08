@@ -2,7 +2,7 @@
 # Sanity experiments for the unified STFPM+concept branch (fully-supervised).
 # Trains + evaluates on MVTec hazelnut and cable.
 #
-# Usage:  bash main_scripts/run_unified_mvtec.sh [DEVICE]
+# Usage:  bash main_unified/run_unified_mvtec.sh [DEVICE]
 set -euo pipefail
 
 DEVICE="${1:-cuda}"
@@ -16,7 +16,7 @@ for CAT in hazelnut cable; do
     SAVE="cbm_models/mvtec/unified/${CAT}/mobilenet_v2.pth"
 
     echo "==================== TRAIN ${CAT} ===================="
-    "$PY" -m main_scripts.unified \
+    "$PY" -m main_unified.unified \
         --mode train \
         --dataframe_path "$DF" \
         --category "$CAT" \
@@ -29,7 +29,7 @@ for CAT in hazelnut cable; do
         --lambda_ 0.55
 
     echo "==================== EVAL ${CAT} ===================="
-    "$PY" -m main_scripts.unified \
+    "$PY" -m main_unified.unified \
         --mode eval \
         --dataframe_path "$DF" \
         --category "$CAT" \

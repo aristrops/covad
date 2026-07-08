@@ -17,7 +17,8 @@ def load_dataset(df, split, use_attr = True, load_image = True):
     return ConceptDataset(df, split=split, use_attr=use_attr, load_image=load_image)
 
 def make_dataloader(dataset, batch_size, shuffle = True):
-    return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
+                                       num_workers=8, pin_memory=True)
 
 
 def test_cbm(dataloder,
@@ -91,7 +92,8 @@ def evaluate_combined_performance(category: str,
     test_dataset = ConceptDataset(dataframe, split = "test", use_attr=False, load_mask=True)
     num_attr = len(test_dataset.attr_cols) 
     attr_cols = test_dataset.attr_cols
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = False,
+                                                  num_workers=8, pin_memory=True)
 
     print(f"\nNumber of test images: {len(test_dataset)}")
 
